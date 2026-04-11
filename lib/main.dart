@@ -12,11 +12,11 @@ class ScheduleApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Planorh',
-      // 先ほどのイメージに少し寄せて、ベースをダークテーマに設定
+      title: 'Interactive Schedule',
+      // モダンなダーク・ブルー系のテーマ設定
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFFF3F4F6), // 薄いグレーブルー系
+        scaffoldBackgroundColor: const Color(0xFFF3F4F6),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFE2E8F0),
           foregroundColor: Colors.black87,
@@ -93,7 +93,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Planorh')),
+      appBar: AppBar(title: const Text('スケジュール調整')),
       // 縦スクロール
       body: SingleChildScrollView(
         child: SizedBox(
@@ -132,67 +132,147 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     );
   }
 
-  // --- ③ 予定ブロックのウィジェット ---
+  // --- ③ 予定ブロックのウィジェット（伸縮対応版） ---
   Widget _buildEventBlock(ScheduleEvent event) {
+    const int minDuration = 15; // 最小の予定時間（15分）
+
     return Positioned(
       top: event.startMin * pixelsPerMinute,
       left: 70, // 時間軸テキストの右側に配置
       width: MediaQuery.of(context).size.width - 100, // 画面幅に合わせて伸縮
       height: event.duration * pixelsPerMinute,
-      child: GestureDetector(
-        // ドラッグ中の処理
-        onPanUpdate: (details) {
-          setState(() {
-            int deltaMin = (details.delta.dy / pixelsPerMinute).round();
-            int newStart = event.startMin + deltaMin;
-            int newEnd = event.endMin + deltaMin;
-
-            // 0:00〜24:00の範囲外に出ないようにガード
-            if (newStart >= 0 && newEnd <= 1440) {
-              event.startMin = newStart;
-              event.endMin = newEnd;
-            }
-            
-            _checkOverlaps();
-          });
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            // イメージに少し寄せたグラデーションと角丸
-            gradient: LinearGradient(
-              colors: [Colors.blue.shade300, Colors.blue.shade500],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [
-              BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))
-            ],
-            // 重複時は赤枠を表示
-            border: event.isOverlapping 
-                ? Border.all(color: Colors.redAccent, width: 3) 
-                : Border.all(color: Colors.white.withOpacity(0.5), width: 1),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.blue.shade300, Colors.blue.shade500],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                event.title,
-                style: const TextStyle(
-                  color: Colors.white, 
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))
+          ],
+          border: event.isOverlapping
+              ? Border.all(color: Colors.redAccent, width: 3)
+              : Border.all(color: Colors.white.withOpacity(0.5), width: 1),
+        ),
+        // Columnを使って、上部・中央・下部の3つのエリアに分ける
+        child: Column(
+          children: [
+            // ==========================================
+            // ① 上部の伸縮ハンドル（開始時間の変更）
+            // ==========================================
+            GestureDetector(
+              onPanUpdate: (details) {
+                setState(() {
+                  int deltaMin = (details.delta.dy / pixelsPerMinute).round();
+                  int newStart = event.startMin + deltaMin;
+
+                  // 0:00より前に行かない ＆ 最小時間(15分)を保つガード
+                  if (newStart >= 0 && (event.endMin - newStart) >= minDuration) {
+                    event.startMin = newStart;
+                    _checkOverlaps();
+                  }
+                });
+              },
+              child: Container(
+                height: 15,
+                color: Colors.transparent, // タッチ判定用
+                child: Center(
+                  // 視覚的な「つまみ」のUI
+                  child: Container(
+                    width: 30, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(2)
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 4),
-              // 時間帯をテキストで表示
-              Text(
-                '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+
+            // ==========================================
+            // ② 中央エリア（全体の移動）
+            // ==========================================
+            Expanded(
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    int deltaMin = (details.delta.dy / pixelsPerMinute).round();
+                    int newStart = event.startMin + deltaMin;
+                    int newEnd = event.endMin + deltaMin;
+
+                    // 0:00〜24:00の範囲外に出ないようにガード
+                    if (newStart >= 0 && newEnd <= 1440) {
+                      event.startMin = newStart;
+                      event.endMin = newEnd;
+                      _checkOverlaps();
+                    }
+                  });
+                },
+                child: Container(
+                  width: double.infinity,
+                  color: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        event.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis, // はみ出し防止
+                      ),
+                      // ブロックが小さすぎるときは時間を非表示にする配慮
+                      if (event.duration > 30) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ]
+                    ],
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+
+            // ==========================================
+            // ③ 下部の伸縮ハンドル（終了時間の変更）
+            // ==========================================
+            GestureDetector(
+              onPanUpdate: (details) {
+                setState(() {
+                  int deltaMin = (details.delta.dy / pixelsPerMinute).round();
+                  int newEnd = event.endMin + deltaMin;
+
+                  // 24:00を超えない ＆ 最小時間(15分)を保つガード
+                  if (newEnd <= 1440 && (newEnd - event.startMin) >= minDuration) {
+                    event.endMin = newEnd;
+                    _checkOverlaps();
+                  }
+                });
+              },
+              child: Container(
+                height: 15,
+                color: Colors.transparent, // タッチ判定用
+                child: Center(
+                  // 視覚的な「つまみ」のUI
+                  child: Container(
+                    width: 30, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(2)
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
