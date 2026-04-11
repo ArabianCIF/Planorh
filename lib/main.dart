@@ -29,14 +29,15 @@ class ScheduleEvent {
   String title;
   int startMin;
   int endMin;
-  bool isOverlapping;
+  
+  int preDragStartMin = 0;
+  int preDragEndMin = 0;
 
   ScheduleEvent({
     required this.id,
     required this.title,
     required this.startMin,
     required this.endMin,
-    this.isOverlapping = false,
   });
 
   int get duration => endMin - startMin;
@@ -48,8 +49,10 @@ class InteractiveSchedule extends StatefulWidget {
 }
 
 class _InteractiveScheduleState extends State<InteractiveSchedule> {
-  final int snapInterval = 1; // 1分間隔
+  final int snapInterval = 1;
   final double pixelsPerMinute = 1.0;
+
+  String? draggingId;
 
   List<ScheduleEvent> events = [
     ScheduleEvent(id: '1', title: '🍽️ 朝食', startMin: 420, endMin: 480),
@@ -57,37 +60,16 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     ScheduleEvent(id: '3', title: '📦 荷物待ち', startMin: 840, endMin: 1020),
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _checkOverlaps();
-  }
-
-  void _checkOverlaps() {
-    for (var event in events) {
-      event.isOverlapping = false;
-    }
-    for (int i = 0; i < events.length; i++) {
-      for (int j = i + 1; j < events.length; j++) {
-        if (events[i].startMin < events[j].endMin && events[i].endMin > events[j].startMin) {
-          events[i].isOverlapping = true;
-          events[j].isOverlapping = true;
-        }
-      }
-    }
-  }
-
   int _snap(int minutes) => (minutes / snapInterval).round() * snapInterval;
 
-  // 押し出し処理（上下の時間を伸ばした時のみ発動）
+  // ▼ 完全修正版：押し出しロジック ▼
   void _resolvePushing(ScheduleEvent movingEvent, bool pushedForward) {
-    events.sort((a, b) => a.startMin.compareTo(b.startMin));
-
     if (pushedForward) {
+      // 下に伸ばす時：開始時間の早い順（上から下）に連鎖させる
+      events.sort((a, b) => a.startMin.compareTo(b.startMin));
       for (int i = 0; i < events.length; i++) {
-        for (int j = 0; j < events.length; j++) {
-          if (events[i] == events[j]) continue;
-          if (events[i].endMin > events[j].startMin && events[i].startMin < events[j].startMin) {
+        for (int j = i + 1; j < events.length; j++) {
+          if (events[i].endMin > events[j].startMin) {
             int overlap = events[i].endMin - events[j].startMin;
             events[j].startMin += overlap;
             events[j].endMin += overlap;
@@ -95,10 +77,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         }
       }
     } else {
-      for (int i = events.length - 1; i >= 0; i--) {
-        for (int j = events.length - 1; j >= 0; j--) {
-          if (events[i] == events[j]) continue;
-          if (events[i].startMin < events[j].endMin && events[i].endMin > events[j].endMin) {
+      // 上に伸ばす時：終了時間の遅い順（下から上）に連鎖させる
+      // ※上に伸ばしても終了時間は変わらないので、計算順序が途中で狂わない！
+      events.sort((a, b) => b.endMin.compareTo(a.endMin));
+      for (int i = 0; i < events.length; i++) {
+        for (int j = i + 1; j < events.length; j++) {
+          if (events[i].startMin < events[j].endMin) {
             int overlap = events[j].endMin - events[i].startMin;
             events[j].startMin -= overlap;
             events[j].endMin -= overlap;
@@ -107,6 +91,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       }
     }
     
+    // 0:00 〜 24:00 を超えないための壁ガード
     for (var e in events) {
       if (e.startMin < 0) {
         int diff = -e.startMin;
@@ -119,10 +104,33 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         e.endMin -= diff;
       }
     }
-    _checkOverlaps();
   }
 
-  // ブロックを最前面に持ってくる処理
+  // 自動回避ロジック（そのまま）
+  int? _findFreeSpaceAbove(ScheduleEvent event) {
+    int targetEnd = event.startMin;
+    int dur = event.duration;
+
+    var others = events.where((e) => e.id != event.id).toList();
+    others.sort((a, b) => b.endMin.compareTo(a.endMin));
+
+    while (targetEnd - dur >= 0) {
+      int proposedStart = targetEnd - dur;
+      int proposedEnd = targetEnd;
+      bool conflict = false;
+
+      for (var e in others) {
+        if (proposedStart < e.endMin && proposedEnd > e.startMin) {
+          conflict = true;
+          targetEnd = e.startMin;
+          break;
+        }
+      }
+      if (!conflict) return proposedStart;
+    }
+    return null;
+  }
+
   void _bringToFront(ScheduleEvent event) {
     setState(() {
       events.remove(event);
@@ -133,7 +141,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('重なり・入れ替え対応版')),
+      appBar: AppBar(title: const Text('上下の完全連鎖アップデート')),
       body: SingleChildScrollView(
         child: SizedBox(
           height: 24 * 60 * pixelsPerMinute,
@@ -151,7 +159,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     ],
                   ),
                 ),
-              // ウィジェットの再構築時にドラッグがキャンセルされないよう、map内で完結させる
               ...events.map((event) => _buildEventBlock(event)),
             ],
           ),
@@ -162,95 +169,129 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   Widget _buildEventBlock(ScheduleEvent event) {
     const int minDuration = 5; 
+    bool isDragging = draggingId == event.id;
 
     return Positioned(
-      // ▼ 重要: リストの順番が変わってもFlutterが同一ウィジェットと認識できるようにKeyを設定
       key: ValueKey(event.id),
       top: event.startMin * pixelsPerMinute,
       left: 70,
       width: MediaQuery.of(context).size.width - 100,
       height: event.duration * pixelsPerMinute,
-      // ▼ 追加: タッチした瞬間に最前面へ移動させるListener
       child: Listener(
         onPointerDown: (_) => _bringToFront(event),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade600]),
-            borderRadius: BorderRadius.circular(12),
-            border: event.isOverlapping ? Border.all(color: Colors.redAccent, width: 3) : null,
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-          ),
-          child: Column(
-            children: [
-              // ① 上端：開始時間を伸ばす（押し出しあり）
-              GestureDetector(
-                onPanUpdate: (details) {
-                  setState(() {
-                    int newStart = _snap(event.startMin + (details.delta.dy / pixelsPerMinute).round());
-                    if (newStart >= 0 && newStart <= event.endMin - minDuration) {
-                      event.startMin = newStart;
-                      _resolvePushing(event, false);
-                    }
-                  });
-                },
-                child: _buildHandle(isTop: true),
-              ),
-              
-              // ② 中央：移動（押し出しなし・自由配置OK）
-              Expanded(
-                child: GestureDetector(
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: isDragging ? 0.6 : 1.0,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade600]),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+            ),
+            child: Column(
+              children: [
+                // ① 上端：開始時間を伸ばす
+                GestureDetector(
+                  onPanStart: (_) => setState(() => draggingId = event.id),
+                  onPanEnd: (_) => setState(() => draggingId = null),
+                  onPanCancel: () => setState(() => draggingId = null),
                   onPanUpdate: (details) {
                     setState(() {
-                      int delta = (details.delta.dy / pixelsPerMinute).round();
-                      int newStart = _snap(event.startMin + delta);
-                      int dur = event.duration;
-                      if (newStart >= 0 && newStart + dur <= 1440) {
+                      int newStart = _snap(event.startMin + (details.delta.dy / pixelsPerMinute).round());
+                      if (newStart >= 0 && newStart <= event.endMin - minDuration) {
                         event.startMin = newStart;
-                        event.endMin = newStart + dur;
-                        // 単純移動なので押し出しは行わず、重なり判定のみ更新
-                        _checkOverlaps(); 
+                        _resolvePushing(event, false); // 上への連鎖呼び出し
                       }
                     });
                   },
-                  child: Container(
-                    width: double.infinity,
-                    color: Colors.transparent,
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            event.title, 
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
-                          ),
-                          if (event.duration > 20) ...[
-                            const SizedBox(height: 2),
+                  child: _buildHandle(isTop: true),
+                ),
+                
+                // ② 中央：移動（ドロップ時の自動回避）
+                Expanded(
+                  child: GestureDetector(
+                    onPanStart: (_) {
+                      setState(() {
+                        draggingId = event.id;
+                        event.preDragStartMin = event.startMin;
+                        event.preDragEndMin = event.endMin;
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      setState(() {
+                        int delta = (details.delta.dy / pixelsPerMinute).round();
+                        int newStart = _snap(event.startMin + delta);
+                        int dur = event.duration;
+                        if (newStart >= 0 && newStart + dur <= 1440) {
+                          event.startMin = newStart;
+                          event.endMin = newStart + dur;
+                        }
+                      });
+                    },
+                    onPanEnd: (_) {
+                      setState(() {
+                        draggingId = null;
+                        bool overlaps = events.any((e) => 
+                          e.id != event.id && event.startMin < e.endMin && event.endMin > e.startMin
+                        );
+
+                        if (overlaps) {
+                          int? newStart = _findFreeSpaceAbove(event);
+                          if (newStart != null) {
+                            event.startMin = newStart;
+                            event.endMin = newStart + event.duration;
+                          } else {
+                            event.startMin = event.preDragStartMin;
+                            event.endMin = event.preDragEndMin;
+                          }
+                        }
+                      });
+                    },
+                    onPanCancel: () => setState(() => draggingId = null),
+                    child: Container(
+                      width: double.infinity,
+                      color: Colors.transparent,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
                             Text(
-                              '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              event.title, 
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
                             ),
-                          ]
-                        ],
-                      )
+                            if (event.duration > 20) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ]
+                          ],
+                        )
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-              // ③ 下端：終了時間を伸ばす（押し出しあり）
-              GestureDetector(
-                onPanUpdate: (details) {
-                  setState(() {
-                    int newEnd = _snap(event.endMin + (details.delta.dy / pixelsPerMinute).round());
-                    if (newEnd <= 1440 && newEnd >= event.startMin + minDuration) {
-                      event.endMin = newEnd;
-                      _resolvePushing(event, true);
-                    }
-                  });
-                },
-                child: _buildHandle(isTop: false),
-              ),
-            ],
+                // ③ 下端：終了時間を伸ばす
+                GestureDetector(
+                  onPanStart: (_) => setState(() => draggingId = event.id),
+                  onPanEnd: (_) => setState(() => draggingId = null),
+                  onPanCancel: () => setState(() => draggingId = null),
+                  onPanUpdate: (details) {
+                    setState(() {
+                      int newEnd = _snap(event.endMin + (details.delta.dy / pixelsPerMinute).round());
+                      if (newEnd <= 1440 && newEnd >= event.startMin + minDuration) {
+                        event.endMin = newEnd;
+                        _resolvePushing(event, true); // 下への連鎖呼び出し
+                      }
+                    });
+                  },
+                  child: _buildHandle(isTop: false),
+                ),
+              ],
+            ),
           ),
         ),
       ),
