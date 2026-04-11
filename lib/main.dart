@@ -48,8 +48,7 @@ class InteractiveSchedule extends StatefulWidget {
 }
 
 class _InteractiveScheduleState extends State<InteractiveSchedule> {
-  // ▼ 変更点①：スナップ間隔を15分から1分に変更
-  final int snapInterval = 1;
+  final int snapInterval = 1; // 1分間隔
   final double pixelsPerMinute = 1.0;
 
   List<ScheduleEvent> events = [
@@ -80,6 +79,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   int _snap(int minutes) => (minutes / snapInterval).round() * snapInterval;
 
+  // 押し出し処理（上下の時間を伸ばした時のみ発動）
   void _resolvePushing(ScheduleEvent movingEvent, bool pushedForward) {
     events.sort((a, b) => a.startMin.compareTo(b.startMin));
 
@@ -122,10 +122,18 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     _checkOverlaps();
   }
 
+  // ブロックを最前面に持ってくる処理
+  void _bringToFront(ScheduleEvent event) {
+    setState(() {
+      events.remove(event);
+      events.add(event);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('1分間隔 ＆ ハンドルUI強調')),
+      appBar: AppBar(title: const Text('重なり・入れ替え対応版')),
       body: SingleChildScrollView(
         child: SizedBox(
           height: 24 * 60 * pixelsPerMinute,
@@ -143,6 +151,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     ],
                   ),
                 ),
+              // ウィジェットの再構築時にドラッグがキャンセルされないよう、map内で完結させる
               ...events.map((event) => _buildEventBlock(event)),
             ],
           ),
@@ -152,144 +161,108 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   }
 
   Widget _buildEventBlock(ScheduleEvent event) {
-    // 最小の長さを15分から「5分」に変更（1分単位で細かく動かせるようにするため）
     const int minDuration = 5; 
 
     return Positioned(
+      // ▼ 重要: リストの順番が変わってもFlutterが同一ウィジェットと認識できるようにKeyを設定
+      key: ValueKey(event.id),
       top: event.startMin * pixelsPerMinute,
       left: 70,
       width: MediaQuery.of(context).size.width - 100,
       height: event.duration * pixelsPerMinute,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade600]),
-          borderRadius: BorderRadius.circular(12),
-          border: event.isOverlapping ? Border.all(color: Colors.redAccent, width: 3) : null,
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-        ),
-        child: Column(
-          children: [
-            // ① 上端：開始時間を伸ばす
-            GestureDetector(
-              onPanUpdate: (details) {
-                setState(() {
-                  int newStart = _snap(event.startMin + (details.delta.dy / pixelsPerMinute).round());
-                  if (newStart >= 0 && newStart <= event.endMin - minDuration) {
-                    event.startMin = newStart;
-                    _resolvePushing(event, false);
-                  }
-                });
-              },
-              // isTop: true を渡して上側の角を丸くする
-              child: _buildHandle(isTop: true),
-            ),
-            
-            // ② 中央：移動と【ドロップ時の吸着】
-            Expanded(
-              child: GestureDetector(
+      // ▼ 追加: タッチした瞬間に最前面へ移動させるListener
+      child: Listener(
+        onPointerDown: (_) => _bringToFront(event),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade600]),
+            borderRadius: BorderRadius.circular(12),
+            border: event.isOverlapping ? Border.all(color: Colors.redAccent, width: 3) : null,
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          ),
+          child: Column(
+            children: [
+              // ① 上端：開始時間を伸ばす（押し出しあり）
+              GestureDetector(
                 onPanUpdate: (details) {
                   setState(() {
-                    int delta = (details.delta.dy / pixelsPerMinute).round();
-                    int newStart = _snap(event.startMin + delta);
-                    int dur = event.duration;
-                    if (newStart >= 0 && newStart + dur <= 1440) {
+                    int newStart = _snap(event.startMin + (details.delta.dy / pixelsPerMinute).round());
+                    if (newStart >= 0 && newStart <= event.endMin - minDuration) {
                       event.startMin = newStart;
-                      event.endMin = newStart + dur;
-                      _checkOverlaps(); 
+                      _resolvePushing(event, false);
                     }
                   });
                 },
-                onPanEnd: (details) {
-                  setState(() {
-                    ScheduleEvent? target;
-                    for (var e in events) {
-                      if (e != event && event.startMin < e.endMin && event.endMin > e.startMin) {
-                        target = e;
-                        break;
-                      }
-                    }
-
-                    if (target != null) {
+                child: _buildHandle(isTop: true),
+              ),
+              
+              // ② 中央：移動（押し出しなし・自由配置OK）
+              Expanded(
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    setState(() {
+                      int delta = (details.delta.dy / pixelsPerMinute).round();
+                      int newStart = _snap(event.startMin + delta);
                       int dur = event.duration;
-                      double myCenter = event.startMin + dur / 2;
-                      double targetCenter = target.startMin + target.duration / 2;
-                      bool pushedForward;
-
-                      if (myCenter < targetCenter) {
-                        event.endMin = target.startMin;
-                        event.startMin = event.endMin - dur;
-                        pushedForward = false;
-                      } else {
-                        event.startMin = target.endMin;
-                        event.endMin = event.startMin + dur;
-                        pushedForward = true;
+                      if (newStart >= 0 && newStart + dur <= 1440) {
+                        event.startMin = newStart;
+                        event.endMin = newStart + dur;
+                        // 単純移動なので押し出しは行わず、重なり判定のみ更新
+                        _checkOverlaps(); 
                       }
-
-                      if (event.startMin < 0) {
-                        event.startMin = 0;
-                        event.endMin = dur;
-                      } else if (event.endMin > 1440) {
-                        event.endMin = 1440;
-                        event.startMin = 1440 - dur;
-                      }
-
-                      _resolvePushing(event, pushedForward);
-                    }
-                    _checkOverlaps();
-                  });
-                },
-                child: Container(
-                  width: double.infinity,
-                  color: Colors.transparent,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          event.title, 
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
-                        ),
-                        if (event.duration > 20) ...[
-                          const SizedBox(height: 2),
+                    });
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    color: Colors.transparent,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
                           Text(
-                            '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                            event.title, 
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
                           ),
-                        ]
-                      ],
-                    )
+                          if (event.duration > 20) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                            ),
+                          ]
+                        ],
+                      )
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            // ③ 下端：終了時間を伸ばす
-            GestureDetector(
-              onPanUpdate: (details) {
-                setState(() {
-                  int newEnd = _snap(event.endMin + (details.delta.dy / pixelsPerMinute).round());
-                  if (newEnd <= 1440 && newEnd >= event.startMin + minDuration) {
-                    event.endMin = newEnd;
-                    _resolvePushing(event, true);
-                  }
-                });
-              },
-              // isTop: false を渡して下側の角を丸くする
-              child: _buildHandle(isTop: false),
-            ),
-          ],
+              // ③ 下端：終了時間を伸ばす（押し出しあり）
+              GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    int newEnd = _snap(event.endMin + (details.delta.dy / pixelsPerMinute).round());
+                    if (newEnd <= 1440 && newEnd >= event.startMin + minDuration) {
+                      event.endMin = newEnd;
+                      _resolvePushing(event, true);
+                    }
+                  });
+                },
+                child: _buildHandle(isTop: false),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ▼ 変更点②：ハンドル（操作エリア）に背景色をつけて分かりやすくした
   Widget _buildHandle({required bool isTop}) {
     return Container(
       height: 18,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.black26, // 操作エリアの背景を少し暗くして視覚化
+        color: Colors.black26, 
         borderRadius: isTop
             ? const BorderRadius.vertical(top: Radius.circular(12))
             : const BorderRadius.vertical(bottom: Radius.circular(12)),
@@ -299,7 +272,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-            color: Colors.white, // 真ん中の横線をくっきり白に
+            color: Colors.white,
             borderRadius: BorderRadius.circular(2)
           )
         )
