@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'dart:async';
 
 void main() {
   runApp(const ScheduleApp());
@@ -30,6 +31,8 @@ class ScheduleEvent {
   int startMin;
   int endMin;
   bool isPinned;
+  String location;
+  String notes;
 
   ScheduleEvent({
     required this.id,
@@ -39,6 +42,8 @@ class ScheduleEvent {
     required this.startMin,
     required this.endMin,
     this.isPinned = false,
+    this.location = '未設定',
+    this.notes = '',
   });
 
   int get duration => endMin - startMin;
@@ -52,6 +57,8 @@ class ScheduleEvent {
       startMin: startMin,
       endMin: endMin,
       isPinned: isPinned,
+      location: location,
+      notes: notes,
     );
   }
 }
@@ -70,18 +77,29 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   String? draggingId;
   bool isDoubleClickMode = false;
-  ScheduleEvent? selectedEvent; // 【追加】現在選択されている（詳細表示する）イベント
+  ScheduleEvent? selectedEvent; 
+  bool _isCreatingNew = false; 
   
   DateTime? lastTapTime;
   String? lastTapEventId;
+  Timer? _singleTapTimer; 
 
   Map<String, ScheduleEvent> preDragState = {};
   double dragStartGlobalY = 0.0;
 
+  // 初期配置のスケジュール
   List<ScheduleEvent> events = [
-    ScheduleEvent(id: '1', title: 'Morning Task (朝食)', icon: Icons.wb_sunny_outlined, color: const Color(0xFF4A89DC), startMin: 480, endMin: 600),
-    ScheduleEvent(id: '2', title: 'Deep Work (勉強)', icon: Icons.psychology_outlined, color: const Color(0xFF8CC152), startMin: 660, endMin: 780),
-    ScheduleEvent(id: '3', title: 'Meeting (荷物待ち)', icon: Icons.people_outline, color: const Color(0xFFF6BB42), startMin: 840, endMin: 930),
+    ScheduleEvent(id: '1', title: 'Morning Task (朝食)', icon: Icons.wb_sunny_outlined, color: const Color(0xFF4A89DC), startMin: 480, endMin: 600, location: '自宅 ダイニング', notes: '今日のタスク整理とメールチェックを済ませる。ゆっくりコーヒーを飲む。'),
+    ScheduleEvent(id: '2', title: 'Deep Work (勉強)', icon: Icons.psychology_outlined, color: const Color(0xFF8CC152), startMin: 660, endMin: 780, location: '駅前のカフェ', notes: 'FlutterのUI実装と状態管理の復習。参考書の第3章を終わらせる。'),
+    ScheduleEvent(id: '3', title: 'Meeting (荷物待ち)', icon: Icons.people_outline, color: const Color(0xFFF6BB42), startMin: 840, endMin: 930, location: '自宅', notes: '14:00〜16:00の間に宅配便が届くので待機する。'),
+  ];
+
+  // テンプレートデータの定義
+  final List<ScheduleEvent> templates = [
+    ScheduleEvent(id: 'tpl_1', title: '運動 (ジム)', icon: Icons.fitness_center, color: const Color(0xFFFC6E51), startMin: 0, endMin: 60),
+    ScheduleEvent(id: 'tpl_2', title: '読書', icon: Icons.menu_book, color: const Color(0xFF48CFAD), startMin: 0, endMin: 45),
+    ScheduleEvent(id: 'tpl_3', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90),
+    ScheduleEvent(id: 'tpl_4', title: '食事', icon: Icons.restaurant, color: const Color(0xFFFFCE54), startMin: 0, endMin: 60),
   ];
 
   int _snap(int minutes) => (minutes / snapInterval).round() * snapInterval;
@@ -95,6 +113,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         now.difference(lastTapTime!) < const Duration(milliseconds: 300) &&
         lastTapEventId == event.id) {
       isDoubleClickMode = true;
+      _singleTapTimer?.cancel(); 
     } else {
       isDoubleClickMode = false;
     }
@@ -160,6 +179,148 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     }
   }
 
+  void _updateEvent(ScheduleEvent updatedEvent) {
+    setState(() {
+      int index = events.indexWhere((e) => e.id == updatedEvent.id);
+      if (index != -1) {
+        events[index] = updatedEvent;
+        events.sort((a, b) => a.startMin.compareTo(b.startMin));
+        selectedEvent = updatedEvent; 
+        _isCreatingNew = false;
+      }
+    });
+  }
+
+  void _deleteEvent(String eventId) {
+    setState(() {
+      events.removeWhere((e) => e.id == eventId);
+      if (selectedEvent?.id == eventId) {
+        selectedEvent = null; 
+        _isCreatingNew = false;
+      }
+    });
+  }
+
+  void _cancelNewEvent() {
+    setState(() {
+      events.removeWhere((e) => e.id == selectedEvent?.id);
+      selectedEvent = null;
+      _isCreatingNew = false;
+    });
+  }
+
+  // ----------------------------------------------------------------------
+  // イベントの新規追加ロジック（白紙・テンプレート共通）
+  // ----------------------------------------------------------------------
+  void _addEventAt(int startMin, {ScheduleEvent? template}) {
+    int maxAllowed = 1440;
+    for (var e in events) {
+      if (e.startMin >= startMin && e.startMin < maxAllowed) {
+        maxAllowed = e.startMin;
+      }
+    }
+
+    int desiredDur = template != null ? template.duration : 60;
+    int endMin = min(startMin + desiredDur, maxAllowed);
+
+    if (endMin - startMin < globalMinDuration) {
+      // 十分な空き時間がない場合はスナックバーで通知して終了
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('予定を配置する十分な空き時間がありません')),
+      );
+      return;
+    }
+
+    var newEvent = ScheduleEvent(
+      id: 'new_${DateTime.now().millisecondsSinceEpoch}',
+      title: template != null ? template.title : '新規予定',
+      icon: template != null ? template.icon : Icons.event_note,
+      color: template != null ? template.color : const Color(0xFF967ADC), 
+      startMin: startMin,
+      endMin: endMin,
+      location: template != null ? template.location : '',
+      notes: template != null ? template.notes : '',
+    );
+
+    setState(() {
+      events.add(newEvent);
+      events.sort((a, b) => a.startMin.compareTo(b.startMin));
+      selectedEvent = newEvent;
+      // テンプレート使用時はすぐに確定状態にし、白紙の時は編集モードにする
+      _isCreatingNew = template == null; 
+    });
+  }
+
+  // ----------------------------------------------------------------------
+  // テンプレート選択メニュー (BottomSheet) の表示
+  // ----------------------------------------------------------------------
+  void _showTemplateMenu(BuildContext context, int tappedMin) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E2024),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('予定を追加', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text('${_formatTime(tappedMin)} から', style: const TextStyle(fontSize: 14, color: Colors.white54)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // 新規作成（白紙）ボタン
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                  title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _addEventAt(tappedMin); // テンプレートなしで追加
+                  },
+                ),
+                
+                const Divider(color: Colors.white10, height: 32),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12.0),
+                  child: Text('テンプレートから選ぶ', style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold)),
+                ),
+                
+                // テンプレート一覧
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: templates.map((tpl) => ActionChip(
+                    avatar: Icon(tpl.icon, color: tpl.color, size: 18),
+                    label: Text(tpl.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                    backgroundColor: tpl.color.withOpacity(0.1),
+                    side: BorderSide(color: tpl.color.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _addEventAt(tappedMin, template: tpl); // テンプレートを指定して追加
+                    },
+                  )).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sortedEvents = List<ScheduleEvent>.from(events)
@@ -179,39 +340,45 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
     return Scaffold(
       body: SafeArea(
-        // 【変更】横並びのレイアウトにアップグレード
         child: Row(
           children: [
-            // ======================================
-            // 左側：メインスケジュール領域
-            // ======================================
             Expanded(
               flex: 1,
               child: Column(
                 children: [
                   _buildHeader(),
                   Expanded(
-                    // 【追加】LayoutBuilderで正確な横幅を取得
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         return SingleChildScrollView(
                           child: SizedBox(
                             height: 24 * 60 * pixelsPerMinute,
-                            width: constraints.maxWidth, // 親の幅いっぱいに設定
+                            width: constraints.maxWidth, 
                             child: Stack(
                               children: [
-                                // 【追加】背景タップで詳細パネルを閉じる
                                 Positioned.fill(
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
-                                    onTap: () {
-                                      setState(() {
-                                        selectedEvent = null;
-                                      });
+                                    onTapUp: (details) {
+                                      if (selectedEvent != null) {
+                                        setState(() {
+                                          if (_isCreatingNew) _cancelNewEvent(); 
+                                          selectedEvent = null;
+                                        });
+                                        return;
+                                      }
+
+                                      int tappedMin = (details.localPosition.dy / pixelsPerMinute).round();
+                                      tappedMin = (tappedMin / 10).round() * 10;
+
+                                      bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
+                                      if (isOverlapping) return;
+
+                                      // 空白タップ時にメニューを表示
+                                      _showTemplateMenu(context, tappedMin);
                                     },
                                   ),
                                 ),
-                                // 背景グリッド
                                 for (int i = 0; i <= 24; i++)
                                   Positioned(
                                     top: i * 60 * pixelsPerMinute,
@@ -241,14 +408,24 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ],
               ),
             ),
-            
-            // ======================================
-            // 右側：詳細パネル領域（タップ時のみ表示）
-            // ======================================
             if (selectedEvent != null)
               Expanded(
                 flex: 1,
-                child: _buildDetailPanel(),
+                child: EventDetailPanel(
+                  event: selectedEvent!.clone(),
+                  allEvents: events,
+                  startInEditMode: _isCreatingNew, 
+                  onClose: () {
+                    if (_isCreatingNew) {
+                      _cancelNewEvent();
+                    } else {
+                      setState(() => selectedEvent = null);
+                    }
+                  },
+                  onSave: _updateEvent,
+                  onDelete: () => _deleteEvent(selectedEvent!.id),
+                  onCancelNew: _cancelNewEvent, 
+                ),
               ),
           ],
         ),
@@ -283,7 +460,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
            Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: const [
-              Text('シングルタップ: 連動移動(縮み)   |   ダブルタップ: 入れ替え(すり抜け)', 
+              Text('空白タップ: 追加メニュー表示  |  ブロックタップ: 詳細表示  |  ドラッグ: 調整', 
                 style: TextStyle(color: Colors.white54, fontSize: 12)
               ),
             ],
@@ -304,119 +481,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     );
   }
 
-  // 【追加】詳細パネルの構築メソッド
-  Widget _buildDetailPanel() {
-    final event = selectedEvent!;
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E2024), // メイン背景より少し明るい色でレイヤー感を出す
-        border: Border(left: BorderSide(color: Colors.white10, width: 1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // パネルヘッダー
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10, width: 1))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('スケジュール詳細', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                GestureDetector(
-                  onTap: () => setState(() => selectedEvent = null),
-                  child: const Icon(Icons.close, color: Colors.white54),
-                )
-              ],
-            ),
-          ),
-          // パネルボディ
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: event.color.withOpacity(0.2), shape: BoxShape.circle),
-                        child: Icon(event.icon, color: event.color, size: 28),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Text(event.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 40),
-                  _buildDetailRow(Icons.access_time, '予定時間', '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}'),
-                  const SizedBox(height: 24),
-                  _buildDetailRow(Icons.hourglass_bottom, '所要時間', '${event.duration} 分'),
-                  const SizedBox(height: 24),
-                  _buildDetailRow(Icons.push_pin, 'ピン留め（ロック）', event.isPinned ? '有効' : '無効'),
-                  const SizedBox(height: 40),
-                  // モック用の操作ボタン
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.edit, size: 18),
-                          label: const Text('編集する'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4A89DC),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: const Text('削除する'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.redAccent,
-                            side: const BorderSide(color: Colors.redAccent),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 【追加】詳細パネル内の行構築ヘルパー
-  Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Icon(icon, color: Colors.white54, size: 24),
-        const SizedBox(width: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            const SizedBox(height: 4),
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildEventBlock(ScheduleEvent event) {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
@@ -428,7 +492,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       top: event.startMin * pixelsPerMinute,
       height: event.duration * pixelsPerMinute,
       left: 70,
-      // 【変更】固定幅（width）をやめ、右側の余白（right）を指定することで自動リサイズ化
       right: 30, 
       child: Listener(
         onPointerDown: (details) => _onPointerDown(details, event),
@@ -437,15 +500,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
           opacity: isDragging ? 0.7 : 1.0,
           child: Stack(
             children: [
-              // =========================================
-              // メインの枠と背景
-              // =========================================
               Positioned.fill(
                 child: Container(
                   clipBehavior: Clip.hardEdge, 
                   decoration: BoxDecoration(
                     color: event.color.withOpacity(0.15),
-                    // 選択中は枠線を少し太くして強調
                     border: Border.all(color: event.color, width: isSelected ? 3 : 2),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -484,20 +543,28 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
               ),
 
-              // =========================================
-              // 中央エリア（全体移動用 兼 タップ判定）
-              // =========================================
               Positioned(
                 top: 15, bottom: 15, left: 0, right: 0,
                 child: GestureDetector(
-                  // 【追加】タップされたら詳細表示用にセット
                   onTap: () {
-                    setState(() {
-                      selectedEvent = event;
+                    if (isDoubleClickMode) return;
+                    _singleTapTimer?.cancel();
+                    _singleTapTimer = Timer(const Duration(milliseconds: 250), () {
+                      if (mounted && !isDoubleClickMode && draggingId == null) {
+                        setState(() {
+                          if (_isCreatingNew && selectedEvent?.id != event.id) {
+                            _cancelNewEvent(); 
+                          }
+                          selectedEvent = event;
+                        });
+                      }
                     });
                   },
                   onPanStart: (details) {
                     setState(() {
+                      if (_isCreatingNew && selectedEvent?.id != event.id) {
+                         _cancelNewEvent();
+                      }
                       draggingId = event.id;
                       dragStartGlobalY = details.globalPosition.dy;
                       preDragState = { for (var e in events) e.id: e.clone() };
@@ -654,14 +721,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
               ),
 
-              // =========================================
-              // ① 上端ハンドル（リサイズ用）
-              // =========================================
               Positioned(
                 top: -10, left: 0, right: 0, height: 30,
                 child: GestureDetector(
                   onPanStart: (details) {
                     setState(() {
+                      if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
                       draggingId = event.id;
                       dragStartGlobalY = details.globalPosition.dy;
                       preDragState = { for (var e in events) e.id: e.clone() };
@@ -707,14 +772,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
               ),
 
-              // =========================================
-              // ② 下端ハンドル（リサイズ用）
-              // =========================================
               Positioned(
                 bottom: -10, left: 0, right: 0, height: 30,
                 child: GestureDetector(
                   onPanStart: (details) {
                     setState(() {
+                      if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
                       draggingId = event.id;
                       dragStartGlobalY = details.globalPosition.dy;
                       preDragState = { for (var e in events) e.id: e.clone() };
@@ -760,9 +823,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
               ),
 
-              // =========================================
-              // ④ ピン留めボタン
-              // =========================================
               Positioned(
                 top: 4, right: 6,
                 child: GestureDetector(
@@ -793,5 +853,478 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     int h = minutes ~/ 60;
     int m = minutes % 60;
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+}
+
+// =========================================================================
+// 詳細パネル用ウィジェット
+// =========================================================================
+class EventDetailPanel extends StatefulWidget {
+  final ScheduleEvent event;
+  final List<ScheduleEvent> allEvents; 
+  final bool startInEditMode; 
+  final VoidCallback onClose;
+  final ValueChanged<ScheduleEvent> onSave;
+  final VoidCallback onDelete;
+  final VoidCallback onCancelNew; 
+
+  const EventDetailPanel({
+    super.key,
+    required this.event,
+    required this.allEvents,
+    this.startInEditMode = false,
+    required this.onClose,
+    required this.onSave,
+    required this.onDelete,
+    required this.onCancelNew,
+  });
+
+  @override
+  State<EventDetailPanel> createState() => _EventDetailPanelState();
+}
+
+class _EventDetailPanelState extends State<EventDetailPanel> {
+  late bool _isEditing;
+  late TextEditingController _titleController;
+  late TextEditingController _locationController;
+  late TextEditingController _notesController;
+
+  int _editStartMin = 0;
+  int _editEndMin = 0;
+  String? _timeError;
+
+  @override
+  void initState() {
+    super.initState();
+    _isEditing = widget.startInEditMode; 
+    _initControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant EventDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    
+    if (oldWidget.event.id != widget.event.id) {
+      _isEditing = widget.startInEditMode; 
+      _initControllers();
+    } else {
+      if (oldWidget.event.startMin != widget.event.startMin || 
+          oldWidget.event.endMin != widget.event.endMin) {
+        
+        _editStartMin = widget.event.startMin;
+        _editEndMin = widget.event.endMin;
+        
+        _timeError = null; 
+      }
+    }
+  }
+
+  void _initControllers() {
+    bool isNew = widget.event.id.startsWith('new_');
+    _titleController = TextEditingController(text: isNew ? '' : widget.event.title);
+    _locationController = TextEditingController(text: isNew ? '' : widget.event.location);
+    _notesController = TextEditingController(text: widget.event.notes);
+    _editStartMin = widget.event.startMin;
+    _editEndMin = widget.event.endMin;
+    _timeError = null;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _locationController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectTime(BuildContext context, bool isStart) async {
+    final initialTime = TimeOfDay(
+      hour: (isStart ? _editStartMin : _editEndMin) ~/ 60,
+      minute: (isStart ? _editStartMin : _editEndMin) % 60,
+    );
+    
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: ColorScheme.dark(
+              primary: widget.event.color, 
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        int pickedMin = picked.hour * 60 + picked.minute;
+        if (isStart) {
+          _editStartMin = pickedMin;
+          if (_editStartMin >= _editEndMin) {
+            _editEndMin = _editStartMin + 10;
+          }
+        } else {
+          _editEndMin = pickedMin;
+          if (_editEndMin <= _editStartMin) {
+            _editStartMin = _editEndMin - 10;
+            if (_editStartMin < 0) _editStartMin = 0;
+          }
+        }
+        _timeError = null; 
+      });
+    }
+  }
+
+  void _saveChanges() {
+    bool hasOverlap = false;
+    for (var other in widget.allEvents) {
+      if (other.id == widget.event.id) continue; 
+      if (_editStartMin < other.endMin && _editEndMin > other.startMin) {
+        hasOverlap = true;
+        break;
+      }
+    }
+
+    if (hasOverlap) {
+      setState(() {
+        _timeError = '※指定した時間は他のスケジュールと重複しています。';
+      });
+      return; 
+    }
+
+    ScheduleEvent updatedEvent = widget.event.clone();
+    updatedEvent.title = _titleController.text.trim().isEmpty ? '名称未設定の予定' : _titleController.text;
+    updatedEvent.location = _locationController.text;
+    updatedEvent.notes = _notesController.text;
+    updatedEvent.startMin = _editStartMin;
+    updatedEvent.endMin = _editEndMin;
+    
+    widget.onSave(updatedEvent);
+    setState(() {
+      _isEditing = false;
+    });
+  }
+
+  String _formatTime(int minutes) {
+    int h = minutes ~/ 60;
+    int m = minutes % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E2024), 
+        border: Border(left: BorderSide(color: Colors.white10, width: 1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10, width: 1))),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _isEditing ? 'スケジュール編集' : 'スケジュール詳細', 
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)
+                ),
+                GestureDetector(
+                  onTap: () {
+                    if (widget.event.id.startsWith('new_') && _isEditing) {
+                      widget.onCancelNew();
+                    } else {
+                      widget.onClose();
+                    }
+                  },
+                  child: const Icon(Icons.close, color: Colors.white54),
+                )
+              ],
+            ),
+          ),
+          
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(32),
+              child: _isEditing ? _buildEditMode(context) : _buildViewMode(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildViewMode() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: widget.event.color.withOpacity(0.2), shape: BoxShape.circle),
+              child: Icon(widget.event.icon, color: widget.event.color, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(widget.event.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 40),
+        _buildDetailRow(Icons.access_time, '予定時間', '${_formatTime(widget.event.startMin)} - ${_formatTime(widget.event.endMin)}'),
+        const SizedBox(height: 24),
+        _buildDetailRow(Icons.hourglass_bottom, '所要時間', '${widget.event.duration} 分'),
+        const SizedBox(height: 24),
+        _buildDetailRow(Icons.location_on_outlined, '場所', widget.event.location),
+        const SizedBox(height: 32),
+        _buildNotesArea(widget.event.notes),
+        
+        const SizedBox(height: 40),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isEditing = true;
+                  });
+                },
+                icon: const Icon(Icons.edit, size: 18),
+                label: const Text('編集する'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4A89DC),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: widget.onDelete, 
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('削除する'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
+        )
+      ],
+    );
+  }
+
+  Widget _buildEditMode(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('タイトル', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _titleController,
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          decoration: _inputDecoration('タスク名を入力'),
+          autofocus: widget.event.id.startsWith('new_'), 
+        ),
+        
+        const SizedBox(height: 24),
+        
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('予定時間', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Text('${_editEndMin - _editStartMin} 分', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () => _selectTime(context, true),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(_formatTime(_editStartMin), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('-', style: TextStyle(color: Colors.white54, fontSize: 18)),
+            ),
+            Expanded(
+              child: InkWell(
+                onTap: () => _selectTime(context, false),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(_formatTime(_editEndMin), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_timeError != null) ...[
+          const SizedBox(height: 8),
+          Text(_timeError!, style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+        ],
+
+        const SizedBox(height: 24),
+        const Text('場所', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _locationController,
+          style: const TextStyle(color: Colors.white, fontSize: 15),
+          decoration: _inputDecoration('場所を入力 (例: 会議室A)'),
+        ),
+
+        const SizedBox(height: 24),
+        const Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _notesController,
+          maxLines: 6,
+          style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.5),
+          decoration: _inputDecoration('メモを入力...'),
+        ),
+
+        const SizedBox(height: 40),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _saveChanges, 
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('保存する'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8CC152), 
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  if (widget.event.id.startsWith('new_') && _isEditing) {
+                    widget.onCancelNew();
+                  } else {
+                    setState(() {
+                      _isEditing = false;
+                      _initControllers(); 
+                    });
+                  }
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white54,
+                  side: const BorderSide(color: Colors.white24),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('キャンセル'),
+              ),
+            ),
+          ],
+        )
+      ],
+    );
+  }
+
+  InputDecoration _inputDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: Colors.white24),
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.05),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: widget.event.color, width: 1.5),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, color: Colors.white54, size: 24),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNotesArea(String notes) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.subject, color: Colors.white54, size: 24),
+            SizedBox(width: 16),
+            Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 120),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Text(
+            notes.isNotEmpty ? notes : '詳細がありません',
+            style: TextStyle(
+              color: notes.isNotEmpty ? Colors.white70 : Colors.white38, 
+              fontSize: 14, 
+              height: 1.6
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
