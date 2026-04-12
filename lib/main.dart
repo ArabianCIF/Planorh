@@ -29,9 +29,6 @@ class ScheduleEvent {
   Color color;
   int startMin;
   int endMin;
-  
-  // 入れ替え先を記憶する「スロット」の役割
-  int baselineStartMin = 0;
 
   ScheduleEvent({
     required this.id,
@@ -40,7 +37,7 @@ class ScheduleEvent {
     required this.color,
     required this.startMin,
     required this.endMin,
-  }) : baselineStartMin = startMin;
+  });
 
   int get duration => endMin - startMin;
 
@@ -52,7 +49,7 @@ class ScheduleEvent {
       color: color,
       startMin: startMin,
       endMin: endMin,
-    )..baselineStartMin = baselineStartMin;
+    );
   }
 }
 
@@ -88,6 +85,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   double get busyHours => events.fold(0, (sum, event) => sum + event.duration) / 60.0;
   double get freeHours => 24.0 - busyHours;
 
+  // 300ms以内の同一ブロックタップでダブルクリック判定
   void _onPointerDown(PointerDownEvent details, ScheduleEvent event) {
     final now = DateTime.now();
     if (lastTapTime != null && 
@@ -101,23 +99,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     lastTapEventId = event.id;
   }
 
-  // ドラッグ終了時の後処理（配列の整合性を保つ）
-  void _onDragEnd() {
-    setState(() {
-      events.sort((a, b) => a.startMin.compareTo(b.startMin));
-      for (var e in events) {
-        e.baselineStartMin = e.startMin;
-      }
-      draggingId = null;
-      preDragState.clear();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
+    // ロジックの安全のため、常に時間順にソートしたコピー配列を使用
     final sortedEvents = List<ScheduleEvent>.from(events)
       ..sort((a, b) => a.startMin.compareTo(b.startMin));
 
+    // ドラッグ中のブロックが他のブロックの下に隠れないように、描画順を最後に回す
     List<Widget> eventWidgets = [];
     Widget? draggingWidget;
     
@@ -141,6 +129,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   height: 24 * 60 * pixelsPerMinute,
                   child: Stack(
                     children: [
+                      // 背景のタイムライングリッド
                       for (int i = 0; i <= 24; i++)
                         Positioned(
                           top: i * 60 * pixelsPerMinute,
@@ -160,6 +149,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                             ],
                           ),
                         ),
+                      // ブロックの描画
                       ...eventWidgets,
                     ],
                   ),
@@ -196,9 +186,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             ],
           ),
           const SizedBox(height: 12),
-            Row(
+           Row(
             mainAxisAlignment: MainAxisAlignment.end,
-            children: [
+            children: const [
               Text('シングルタップ: 連動移動(縮み)   |   ダブルタップ: 入れ替え(すり抜け)', 
                 style: TextStyle(color: Colors.white54, fontSize: 12)
               ),
@@ -238,43 +228,55 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
           opacity: isDragging ? 0.7 : 1.0,
           child: Stack(
             children: [
+              // =========================================
+              // メインの枠と背景
+              // =========================================
               Positioned.fill(
                 child: Container(
+                  clipBehavior: Clip.hardEdge, // 【追加】はみ出した中身をここで切り取る
                   decoration: BoxDecoration(
                     color: event.color.withOpacity(0.15),
                     border: Border.all(color: event.color, width: 2),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                  // 【変更】PaddingをContainerから移動し、SingleChildScrollViewで包む
+                  child: SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(), // スクロールはさせない
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(event.icon, color: Colors.white, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              event.title, 
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                          Row(
+                            children: [
+                              Icon(event.icon, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  event.title, 
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
+                          if (event.duration > 20) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                            ),
+                          ]
                         ],
                       ),
-                      if (event.duration > 20) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ]
-                    ],
+                    ),
                   ),
                 ),
               ),
 
+              // =========================================
               // 中央エリア（全体移動用）
+              // =========================================
               Positioned(
                 top: 15, bottom: 15, left: 0, right: 0,
                 child: GestureDetector(
@@ -282,9 +284,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     setState(() {
                       draggingId = event.id;
                       dragStartGlobalY = details.globalPosition.dy;
-                      for (var e in events) {
-                        e.baselineStartMin = e.startMin;
-                      }
                       preDragState = { for (var e in events) e.id: e.clone() };
                     });
                   },
@@ -293,50 +292,46 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
 
                       if (isDoubleClickMode) {
-                        // 【ダブルタップ並び替え】
+                        // 【ダブルクリック】すり抜けとスナップ
                         int newStart = _snap(preDragState[event.id]!.startMin + totalDelta);
                         int dur = preDragState[event.id]!.duration;
                         
                         if (newStart < 0) newStart = 0;
                         if (newStart + dur > 1440) newStart = 1440 - dur;
-                        
-                        event.startMin = newStart;
-                        event.endMin = newStart + dur;
 
-                        double movingCenter = event.startMin + dur / 2;
-                        
+                        int snapThreshold = 15; 
+                        int bestSnapStart = newStart;
+                        int minDiff = snapThreshold + 1;
+
                         for (var other in events) {
                           if (other.id == event.id) continue;
-                          double otherCenter = other.baselineStartMin + other.duration / 2;
 
-                          // 相手の中間線を越えたら位置を入れ替える（全体の枠を崩さずに綺麗に収める）
-                          if (movingCenter > otherCenter && event.baselineStartMin < other.baselineStartMin) {
-                            int totalSpanStart = min(event.baselineStartMin, other.baselineStartMin);
-                            int totalSpanEnd = max(event.baselineStartMin + dur, other.baselineStartMin + other.duration);
+                          int diffToEnd = (newStart - other.endMin).abs();
+                          if (diffToEnd < minDiff) {
+                            minDiff = diffToEnd;
+                            bestSnapStart = other.endMin;
+                          }
 
-                            other.baselineStartMin = totalSpanStart;
-                            other.startMin = other.baselineStartMin;
-                            other.endMin = other.startMin + other.duration;
-
-                            event.baselineStartMin = totalSpanEnd - dur;
-                          } else if (movingCenter < otherCenter && event.baselineStartMin > other.baselineStartMin) {
-                            int totalSpanStart = min(event.baselineStartMin, other.baselineStartMin);
-                            int totalSpanEnd = max(event.baselineStartMin + dur, other.baselineStartMin + other.duration);
-
-                            event.baselineStartMin = totalSpanStart;
-                            
-                            other.baselineStartMin = totalSpanEnd - other.duration;
-                            other.startMin = other.baselineStartMin;
-                            other.endMin = other.startMin + other.duration;
+                          int diffToStart = ((newStart + dur) - other.startMin).abs();
+                          if (diffToStart < minDiff) {
+                            minDiff = diffToStart;
+                            bestSnapStart = other.startMin - dur;
                           }
                         }
 
+                        if (bestSnapStart < 0) bestSnapStart = 0;
+                        if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
+
+                        event.startMin = bestSnapStart;
+                        event.endMin = bestSnapStart + dur;
+
                       } else {
-                        // 【シングルタップ通常移動】
+                        // 【シングルクリック】連動移動・縮み
                         for (int i = 0; i < events.length; i++) {
                           events[i].startMin = preDragState[events[i].id]!.startMin;
                           events[i].endMin = preDragState[events[i].id]!.endMin;
                         }
+                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
 
                         int dragIndex = events.indexWhere((e) => e.id == draggingId);
                         if (dragIndex == -1) return;
@@ -347,40 +342,27 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         int newStart = _snap(preDrag.startMin + totalDelta);
                         int dur = preDrag.duration;
 
-                        if (newStart < 0) newStart = 0;
-                        if (newStart + dur > 1440) newStart = 1440 - dur;
+                        int minAllowed = dragIndex * globalMinDuration;
+                        int maxAllowed = 1440 - (events.length - 1 - dragIndex) * globalMinDuration;
+
+                        if (newStart < minAllowed) newStart = minAllowed;
+                        if (newStart + dur > maxAllowed) newStart = maxAllowed - dur;
 
                         dragged.startMin = newStart;
                         dragged.endMin = newStart + dur;
 
-                        // 上のブロック（B）を押し出し＆Cの壁で縮む処理
-                        if (dragIndex > 0) {
-                          var prev = events[dragIndex - 1];
-                          var prePrev = preDragState[prev.id]!;
-                          int minBound = (dragIndex > 1) ? events[dragIndex - 2].endMin : 0; // Cの壁
-                          
-                          if (dragged.startMin < prePrev.endMin) {
-                            prev.endMin = min(prePrev.endMin, dragged.startMin);
-                            int idealStart = min(prePrev.startMin, prev.endMin - globalMinDuration);
-                            prev.startMin = max(idealStart, minBound);
-                            if (prev.endMin - prev.startMin < globalMinDuration) {
-                              prev.endMin = prev.startMin + globalMinDuration;
+                        if (totalDelta < 0) {
+                          for (int i = dragIndex - 1; i >= 0; i--) {
+                            if (events[i].endMin > events[i+1].startMin) {
+                              events[i].endMin = events[i+1].startMin;
+                              events[i].startMin = min(preDragState[events[i].id]!.startMin, events[i].endMin - globalMinDuration);
                             }
                           }
-                        }
-
-                        // 下のブロック（B）を押し出し＆Cの壁で縮む処理
-                        if (dragIndex < events.length - 1) {
-                          var next = events[dragIndex + 1];
-                          var preNext = preDragState[next.id]!;
-                          int maxBound = (dragIndex < events.length - 2) ? events[dragIndex + 2].startMin : 1440; // Cの壁
-                          
-                          if (dragged.endMin > preNext.startMin) {
-                            next.startMin = max(preNext.startMin, dragged.endMin);
-                            int idealEnd = max(preNext.endMin, next.startMin + globalMinDuration);
-                            next.endMin = min(idealEnd, maxBound);
-                            if (next.endMin - next.startMin < globalMinDuration) {
-                              next.startMin = next.endMin - globalMinDuration;
+                        } else if (totalDelta > 0) {
+                          for (int i = dragIndex + 1; i < events.length; i++) {
+                            if (events[i].startMin < events[i-1].endMin) {
+                              events[i].startMin = events[i-1].endMin;
+                              events[i].endMin = max(preDragState[events[i].id]!.endMin, events[i].startMin + globalMinDuration);
                             }
                           }
                         }
@@ -390,18 +372,106 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   onPanEnd: (_) {
                     setState(() {
                       if (isDoubleClickMode) {
-                        event.startMin = event.baselineStartMin;
-                        event.endMin = event.startMin + preDragState[event.id]!.duration;
+                        // ====== 新機能：隙間に自動フィット＆縮小 ======
+                        List<List<int>> freeGaps = [];
+                        int currentMax = 0;
+                        
+                        // 自分以外のブロックを時間順に取得
+                        final others = events.where((e) => e.id != event.id).toList()
+                          ..sort((a, b) => a.startMin.compareTo(b.startMin));
+
+                        // 1. 空き時間（ギャップ）をすべて洗い出す
+                        for (var o in others) {
+                          if (o.startMin > currentMax) {
+                            freeGaps.add([currentMax, o.startMin]);
+                          }
+                          if (o.endMin > currentMax) {
+                            currentMax = o.endMin;
+                          }
+                        }
+                        if (1440 > currentMax) {
+                          freeGaps.add([currentMax, 1440]);
+                        }
+
+                        // 2. ドロップされたブロックが属するターゲットギャップを特定
+                        double dropCenter = event.startMin + event.duration / 2;
+                        List<int>? targetGap;
+
+                        // まずは中心点がどのギャップにあるか判定
+                        for (var gap in freeGaps) {
+                          if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
+                            targetGap = gap;
+                            break;
+                          }
+                        }
+
+                        // 中心点が他ブロックの真上だった場合、一番重なりが大きいギャップを探す
+                        if (targetGap == null) {
+                          int maxOverlap = 0;
+                          for (var gap in freeGaps) {
+                            int overlapStart = max(gap[0], event.startMin);
+                            int overlapEnd = min(gap[1], event.endMin);
+                            int overlap = max(0, overlapEnd - overlapStart);
+                            if (overlap > maxOverlap) {
+                              maxOverlap = overlap;
+                              targetGap = gap;
+                            }
+                          }
+                        }
+
+                        // 3. ギャップにはめ込む処理
+                        bool fitSuccess = false;
+                        if (targetGap != null) {
+                          int gStart = targetGap[0];
+                          int gEnd = targetGap[1];
+                          int gDur = gEnd - gStart;
+
+                          // 隙間が最小時間以上ある場合のみはめ込む
+                          if (gDur >= globalMinDuration) {
+                            int origDur = preDragState[event.id]!.duration;
+                            
+                            int proposedStart = event.startMin;
+                            if (proposedStart < gStart) proposedStart = gStart;
+                            
+                            int proposedEnd = proposedStart + origDur;
+                            
+                            // ブロックの終端がギャップをはみ出すなら縮小して収める
+                            if (proposedEnd > gEnd) {
+                               proposedEnd = gEnd;
+                               proposedStart = max(gStart, proposedEnd - origDur);
+                               
+                               // 縮小されすぎて最小時間を下回る場合のガード
+                               if (proposedEnd - proposedStart < globalMinDuration) {
+                                   proposedStart = proposedEnd - globalMinDuration;
+                               }
+                            }
+                            
+                            event.startMin = proposedStart;
+                            event.endMin = proposedEnd;
+                            fitSuccess = true;
+                          }
+                        }
+
+                        // 4. フィット失敗（隙間が狭すぎる、完全に他ブロックの上）の場合はキャンセルして戻す
+                        if (!fitSuccess) {
+                          event.startMin = preDragState[event.id]!.startMin;
+                          event.endMin = preDragState[event.id]!.endMin;
+                        }
                       }
+                      
+                      draggingId = null;
+                      preDragState.clear();
+                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
                     });
-                    _onDragEnd();
                   },
-                  onPanCancel: _onDragEnd,
+                  onPanCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
                   child: Container(color: Colors.transparent),
                 ),
               ),
 
+              // =========================================
               // ① 上端ハンドル（リサイズ用）
+              // =========================================
               Positioned(
                 top: -10, left: 0, right: 0, height: 30,
                 child: GestureDetector(
@@ -413,7 +483,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     });
                   },
                   onPanUpdate: (details) {
-                    if (isDoubleClickMode) return; 
+                    if (isDoubleClickMode) return;
                     setState(() {
                       int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
                       
@@ -421,6 +491,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         events[i].startMin = preDragState[events[i].id]!.startMin;
                         events[i].endMin = preDragState[events[i].id]!.endMin;
                       }
+                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
                       
                       int dragIndex = events.indexWhere((e) => e.id == draggingId);
                       if (dragIndex == -1) return;
@@ -428,17 +499,24 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ScheduleEvent preDrag = preDragState[dragged.id]!;
                       
                       int newStart = _snap(preDrag.startMin + totalDelta);
-                      int minAllowed = (dragIndex > 0) ? events[dragIndex - 1].endMin : 0;
+                      int minAllowed = dragIndex * globalMinDuration;
                       int maxAllowed = preDrag.endMin - globalMinDuration;
 
                       if (newStart < minAllowed) newStart = minAllowed;
                       if (newStart > maxAllowed) newStart = maxAllowed;
 
                       dragged.startMin = newStart;
+
+                      for (int i = dragIndex - 1; i >= 0; i--) {
+                        if (events[i].endMin > events[i+1].startMin) {
+                          events[i].endMin = events[i+1].startMin;
+                          events[i].startMin = min(preDragState[events[i].id]!.startMin, events[i].endMin - globalMinDuration);
+                        }
+                      }
                     });
                   },
-                  onPanEnd: (_) => _onDragEnd(),
-                  onPanCancel: _onDragEnd,
+                  onPanEnd: (_) => setState(() => draggingId = null),
+                  onPanCancel: () => setState(() => draggingId = null),
                   child: Container(
                     color: Colors.transparent,
                     alignment: Alignment.topCenter,
@@ -448,7 +526,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
               ),
 
-              // ③ 下端ハンドル（リサイズ用）
+              // =========================================
+              // ② 下端ハンドル（リサイズ用）
+              // =========================================
               Positioned(
                 bottom: -10, left: 0, right: 0, height: 30,
                 child: GestureDetector(
@@ -468,6 +548,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         events[i].startMin = preDragState[events[i].id]!.startMin;
                         events[i].endMin = preDragState[events[i].id]!.endMin;
                       }
+                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
                       
                       int dragIndex = events.indexWhere((e) => e.id == draggingId);
                       if (dragIndex == -1) return;
@@ -475,17 +556,24 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ScheduleEvent preDrag = preDragState[dragged.id]!;
                       
                       int newEnd = _snap(preDrag.endMin + totalDelta);
-                      int maxAllowed = (dragIndex < events.length - 1) ? events[dragIndex + 1].startMin : 1440;
+                      int maxAllowed = 1440 - (events.length - 1 - dragIndex) * globalMinDuration;
                       int minAllowed = preDrag.startMin + globalMinDuration;
 
                       if (newEnd > maxAllowed) newEnd = maxAllowed;
                       if (newEnd < minAllowed) newEnd = minAllowed;
 
                       dragged.endMin = newEnd;
+
+                      for (int i = dragIndex + 1; i < events.length; i++) {
+                        if (events[i].startMin < events[i-1].endMin) {
+                          events[i].startMin = events[i-1].endMin;
+                          events[i].endMin = max(preDragState[events[i].id]!.endMin, events[i].startMin + globalMinDuration);
+                        }
+                      }
                     });
                   },
-                  onPanEnd: (_) => _onDragEnd(),
-                  onPanCancel: _onDragEnd,
+                  onPanEnd: (_) => setState(() => draggingId = null),
+                  onPanCancel: () => setState(() => draggingId = null),
                   child: Container(
                     color: Colors.transparent,
                     alignment: Alignment.bottomCenter,
