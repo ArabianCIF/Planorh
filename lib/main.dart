@@ -83,9 +83,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   bool _isCreatingNew = false; 
   
   Color? previewColor;
+  String? deletingEventId; 
 
-  // 【追加】削除中のイベントIDを保持する変数（アニメーション用）
-  String? deletingEventId;
+  // 【追加】空白ドラッグ作成用の状態変数
+  int? dragCreateStartMin;
+  int? dragCreateCurrentMin;
 
   DateTime? lastTapTime;
   String? lastTapEventId;
@@ -197,10 +199,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     });
   }
 
-  // 【変更】削除時にアニメーションを挟むように改修
   void _deleteEvent(String eventId) {
     setState(() {
-      deletingEventId = eventId; // アニメーション開始トリガー
+      deletingEventId = eventId; 
       if (selectedEvent?.id == eventId) {
         selectedEvent = null; 
         _isCreatingNew = false;
@@ -208,7 +209,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       }
     });
 
-    // 350ミリ秒（アニメーション時間）待ってからリストから完全に削除する
     Future.delayed(const Duration(milliseconds: 350), () {
       if (mounted) {
         setState(() {
@@ -230,7 +230,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     });
   }
 
-  void _addEventAt(int startMin, {ScheduleEvent? template}) {
+  // 【変更】specificDuration（ドラッグで指定された長さ）を受け取れるようにする
+  void _addEventAt(int startMin, {ScheduleEvent? template, int? specificDuration}) {
     int maxAllowed = 1440;
     for (var e in events) {
       if (e.startMin >= startMin && e.startMin < maxAllowed) {
@@ -238,7 +239,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       }
     }
 
-    int desiredDur = template != null ? template.duration : 60;
+    // specificDuration があれば優先、なければテンプレートの長さ、それもなければ60分
+    int desiredDur = specificDuration ?? (template != null ? template.duration : 60);
     int endMin = min(startMin + desiredDur, maxAllowed);
 
     if (endMin - startMin < globalMinDuration) {
@@ -390,6 +392,66 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
                                           _showTemplateMenu(context, tappedMin);
                                         },
+                                        // 【追加】空白部分のドラッグ作成のイベント処理
+                                        onVerticalDragStart: (details) {
+                                          if (selectedEvent != null) return;
+                                          int min = (details.localPosition.dy / pixelsPerMinute).round();
+                                          min = (min / 10).round() * 10;
+                                          
+                                          // タップした開始地点が既にブロックで埋まっている場合はドラッグ無効
+                                          bool isOverlapping = events.any((e) => min >= e.startMin && min < e.endMin);
+                                          if (isOverlapping) return;
+
+                                          setState(() {
+                                            dragCreateStartMin = min;
+                                            dragCreateCurrentMin = min;
+                                          });
+                                        },
+                                        onVerticalDragUpdate: (details) {
+                                          if (dragCreateStartMin == null) return;
+                                          int min = (details.localPosition.dy / pixelsPerMinute).round();
+                                          min = (min / 10).round() * 10;
+                                          if (min < 0) min = 0;
+                                          if (min > 1440) min = 1440;
+                                          
+                                          setState(() {
+                                            dragCreateCurrentMin = min;
+                                          });
+                                        },
+                                        onVerticalDragEnd: (details) {
+                                          if (dragCreateStartMin == null || dragCreateCurrentMin == null) {
+                                            setState(() {
+                                              dragCreateStartMin = null;
+                                              dragCreateCurrentMin = null;
+                                            });
+                                            return;
+                                          }
+
+                                          int start = min<int>(dragCreateStartMin!, dragCreateCurrentMin!);
+                                          int end = max<int>(dragCreateStartMin!, dragCreateCurrentMin!);
+                                          int tapStart = dragCreateStartMin!; // 最初にクリックした位置を保持
+
+                                          setState(() {
+                                            dragCreateStartMin = null;
+                                            dragCreateCurrentMin = null;
+                                          });
+
+                                          if (end - start < globalMinDuration) {
+                                            // ドラッグ量が少ない場合は onTapUp に任せるので無視
+                                            return;
+                                          }
+
+                                          // ドラッグした範囲内に既存のブロックがあるか確認
+                                          bool isOverlapping = events.any((e) => start < e.endMin && end > e.startMin);
+                                          
+                                          if (isOverlapping) {
+                                            // 被りがある場合は、最初にクリックした部分に今まで通りメニューを表示
+                                            _showTemplateMenu(context, tapStart);
+                                          } else {
+                                            // 被りがない場合は、その指定された時間分の予定ブロック(白紙)を直接作成
+                                            _addEventAt(start, specificDuration: end - start);
+                                          }
+                                        },
                                       ),
                                     ),
                                     for (int i = 0; i <= 24; i++)
@@ -411,6 +473,22 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                         ),
                                       ),
                                     ...eventWidgets,
+                                    
+                                    // 【追加】ドラッグ作成中のプレビュー（紫色の枠）
+                                    if (dragCreateStartMin != null && dragCreateCurrentMin != null)
+                                      Positioned(
+                                        top: min<int>(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
+                                        height: max<int>(globalMinDuration, (dragCreateCurrentMin! - dragCreateStartMin!).abs()) * pixelsPerMinute,
+                                        left: 70,
+                                        right: 30,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF967ADC).withOpacity(0.2),
+                                            border: Border.all(color: const Color(0xFF967ADC), width: 2),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -430,7 +508,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           child: EventDetailPanel(
                             event: selectedEvent!.clone(),
                             allEvents: events,
-                            isCreatingNew: _isCreatingNew, // 【変更】親の確実な状態を渡す
+                            isCreatingNew: _isCreatingNew, 
                             startInEditMode: _isCreatingNew, 
                             onClose: () {
                               if (_isCreatingNew) {
@@ -523,7 +601,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
               ),
-              const Text('空白タップ: 追加メニュー表示  |  ブロックタップ: 詳細  |  ドラッグ: 調整', 
+              const Text('空白ドラッグ: 時間を指定して追加  |  ブロックタップ: 詳細', 
                 style: TextStyle(color: Colors.white54, fontSize: 11)
               ),
             ],
@@ -547,7 +625,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Widget _buildEventBlock(ScheduleEvent event) {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
-    bool isDeleting = deletingEventId == event.id; // 【追加】削除中かどうか
+    bool isDeleting = deletingEventId == event.id; 
 
     Color displayColor = (isSelected && previewColor != null) ? previewColor! : event.color;
 
@@ -564,7 +642,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       height: blockHeight,
       left: 70,
       right: 30, 
-      // 【変更】削除時と追加時の両方に対応するアニメーション設定
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.0, end: isDeleting ? 0.0 : 1.0),
         duration: const Duration(milliseconds: 350),
@@ -949,7 +1026,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 class EventDetailPanel extends StatefulWidget {
   final ScheduleEvent event;
   final List<ScheduleEvent> allEvents; 
-  // 【変更】親から確実な状態を受け取るためプロパティを追加
   final bool isCreatingNew; 
   final bool startInEditMode; 
   final VoidCallback onClose;
@@ -962,7 +1038,7 @@ class EventDetailPanel extends StatefulWidget {
     super.key,
     required this.event,
     required this.allEvents,
-    required this.isCreatingNew, // 【変更】
+    required this.isCreatingNew, 
     this.startInEditMode = false,
     required this.onClose,
     required this.onSave,
@@ -1025,8 +1101,8 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   }
 
   void _initControllers() {
-    _titleController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.title); // 【変更】判定ロジックの修正
-    _locationController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.location); // 【変更】判定ロジックの修正
+    _titleController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.title); 
+    _locationController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.location); 
     _notesController = TextEditingController(text: widget.event.notes);
     _editStartMin = widget.event.startMin;
     _editEndMin = widget.event.endMin;
@@ -1142,7 +1218,6 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
                 ),
                 GestureDetector(
                   onTap: () {
-                    // 【変更】確実な状態で判定する
                     if (widget.isCreatingNew) {
                       widget.onCancelNew();
                     } else {
@@ -1242,7 +1317,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
           controller: _titleController,
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           decoration: _inputDecoration('タスク名を入力'),
-          autofocus: widget.isCreatingNew, // 【変更】確実な状態で判定する
+          autofocus: widget.isCreatingNew, 
         ),
         
         const SizedBox(height: 24),
@@ -1374,7 +1449,6 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
             Expanded(
               child: OutlinedButton(
                 onPressed: () {
-                  // 【変更】確実な状態で判定する
                   if (widget.isCreatingNew) {
                     widget.onCancelNew();
                   } else {
