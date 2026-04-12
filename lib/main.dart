@@ -72,7 +72,9 @@ class InteractiveSchedule extends StatefulWidget {
 
 class _InteractiveScheduleState extends State<InteractiveSchedule> {
   final int snapInterval = 1; 
-  final double pixelsPerMinute = 1.0;
+  
+  double pixelsPerMinute = 1.0; 
+  
   final int globalMinDuration = 10; 
 
   String? draggingId;
@@ -80,8 +82,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   ScheduleEvent? selectedEvent; 
   bool _isCreatingNew = false; 
   
-  // 【追加】プレビュー用の色を保持する変数
   Color? previewColor;
+
+  // 【追加】削除中のイベントIDを保持する変数（アニメーション用）
+  String? deletingEventId;
 
   DateTime? lastTapTime;
   String? lastTapEventId;
@@ -188,18 +192,31 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         events.sort((a, b) => a.startMin.compareTo(b.startMin));
         selectedEvent = updatedEvent; 
         _isCreatingNew = false;
-        previewColor = null; // 【変更】保存時にプレビューをリセット
+        previewColor = null; 
       }
     });
   }
 
+  // 【変更】削除時にアニメーションを挟むように改修
   void _deleteEvent(String eventId) {
     setState(() {
-      events.removeWhere((e) => e.id == eventId);
+      deletingEventId = eventId; // アニメーション開始トリガー
       if (selectedEvent?.id == eventId) {
         selectedEvent = null; 
         _isCreatingNew = false;
-        previewColor = null; // 【変更】削除時にプレビューをリセット
+        previewColor = null; 
+      }
+    });
+
+    // 350ミリ秒（アニメーション時間）待ってからリストから完全に削除する
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) {
+        setState(() {
+          events.removeWhere((e) => e.id == eventId);
+          if (deletingEventId == eventId) {
+            deletingEventId = null;
+          }
+        });
       }
     });
   }
@@ -209,7 +226,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       events.removeWhere((e) => e.id == selectedEvent?.id);
       selectedEvent = null;
       _isCreatingNew = false;
-      previewColor = null; // 【変更】キャンセル時にプレビューをリセット
+      previewColor = null; 
     });
   }
 
@@ -247,7 +264,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       events.sort((a, b) => a.startMin.compareTo(b.startMin));
       selectedEvent = newEvent;
       _isCreatingNew = template == null; 
-      previewColor = null; // 【変更】新規作成時にプレビューをリセット
+      previewColor = null; 
     });
   }
 
@@ -335,103 +352,111 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
     return Scaffold(
       body: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              flex: 1,
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        return SingleChildScrollView(
-                          child: SizedBox(
-                            height: 24 * 60 * pixelsPerMinute,
-                            width: constraints.maxWidth, 
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTapUp: (details) {
-                                      if (selectedEvent != null) {
-                                        setState(() {
-                                          if (_isCreatingNew) _cancelNewEvent(); 
-                                          selectedEvent = null;
-                                          previewColor = null; // 【変更】閉じる時にプレビューをリセット
-                                        });
-                                        return;
-                                      }
+        child: LayoutBuilder(
+          builder: (context, screenConstraints) {
+            return Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      _buildHeader(),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            return SingleChildScrollView(
+                              child: SizedBox(
+                                height: 24 * 60 * pixelsPerMinute,
+                                width: constraints.maxWidth, 
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTapUp: (details) {
+                                          if (selectedEvent != null) {
+                                            setState(() {
+                                              if (_isCreatingNew) _cancelNewEvent(); 
+                                              selectedEvent = null;
+                                              previewColor = null; 
+                                            });
+                                            return;
+                                          }
 
-                                      int tappedMin = (details.localPosition.dy / pixelsPerMinute).round();
-                                      tappedMin = (tappedMin / 10).round() * 10;
+                                          int tappedMin = (details.localPosition.dy / pixelsPerMinute).round();
+                                          tappedMin = (tappedMin / 10).round() * 10;
 
-                                      bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
-                                      if (isOverlapping) return;
+                                          bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
+                                          if (isOverlapping) return;
 
-                                      _showTemplateMenu(context, tappedMin);
-                                    },
-                                  ),
-                                ),
-                                for (int i = 0; i <= 24; i++)
-                                  Positioned(
-                                    top: i * 60 * pixelsPerMinute,
-                                    left: 0, right: 0,
-                                    child: Row(
-                                      children: [
-                                        SizedBox(
-                                          width: 60, 
-                                          child: Text(
-                                            '${i.toString().padLeft(2, '0')}:00', 
-                                            textAlign: TextAlign.center, 
-                                            style: const TextStyle(color: Colors.white54, fontSize: 12)
-                                          )
-                                        ),
-                                        const Expanded(child: Divider(color: Colors.white10, height: 1)),
-                                      ],
+                                          _showTemplateMenu(context, tappedMin);
+                                        },
+                                      ),
                                     ),
-                                  ),
-                                ...eventWidgets,
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    ),
+                                    for (int i = 0; i <= 24; i++)
+                                      Positioned(
+                                        top: i * 60 * pixelsPerMinute,
+                                        left: 0, right: 0,
+                                        child: Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 60, 
+                                              child: Text(
+                                                '${i.toString().padLeft(2, '0')}:00', 
+                                                textAlign: TextAlign.center, 
+                                                style: const TextStyle(color: Colors.white54, fontSize: 12)
+                                              )
+                                            ),
+                                            const Expanded(child: Divider(color: Colors.white10, height: 1)),
+                                          ],
+                                        ),
+                                      ),
+                                    ...eventWidgets,
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-            if (selectedEvent != null)
-              Expanded(
-                flex: 1,
-                child: EventDetailPanel(
-                  event: selectedEvent!.clone(),
-                  allEvents: events,
-                  startInEditMode: _isCreatingNew, 
-                  onClose: () {
-                    if (_isCreatingNew) {
-                      _cancelNewEvent();
-                    } else {
-                      setState(() {
-                        selectedEvent = null;
-                        previewColor = null; // 【変更】閉じる時にプレビューをリセット
-                      });
-                    }
-                  },
-                  onSave: _updateEvent,
-                  onDelete: () => _deleteEvent(selectedEvent!.id),
-                  onCancelNew: _cancelNewEvent, 
-                  // 【追加】パネルからの色変更の通知を受け取る
-                  onColorPreview: (color) {
-                    setState(() {
-                      previewColor = color;
-                    });
-                  },
                 ),
-              ),
-          ],
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  child: selectedEvent != null
+                      ? SizedBox(
+                          width: screenConstraints.maxWidth * 0.5,
+                          child: EventDetailPanel(
+                            event: selectedEvent!.clone(),
+                            allEvents: events,
+                            isCreatingNew: _isCreatingNew, // 【変更】親の確実な状態を渡す
+                            startInEditMode: _isCreatingNew, 
+                            onClose: () {
+                              if (_isCreatingNew) {
+                                _cancelNewEvent();
+                              } else {
+                                setState(() {
+                                  selectedEvent = null;
+                                  previewColor = null; 
+                                });
+                              }
+                            },
+                            onSave: _updateEvent,
+                            onDelete: () => _deleteEvent(selectedEvent!.id),
+                            onCancelNew: _cancelNewEvent, 
+                            onColorPreview: (color) {
+                              setState(() {
+                                previewColor = color;
+                              });
+                            },
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            );
+          }
         ),
       ),
     );
@@ -448,8 +473,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               const Text(
-                'Planorh',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                'Planorh', 
+                style: TextStyle(fontSize: 35, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               Row(
                 children: [
@@ -461,11 +486,45 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             ],
           ),
           const SizedBox(height: 12),
-           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: const [
-              Text('空白タップ: 追加メニュー表示  |  ブロックタップ: 詳細表示  |  ドラッグ: 調整', 
-                style: TextStyle(color: Colors.white54, fontSize: 12)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
+                  SizedBox(
+                    width: 200, 
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2.0, 
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0), 
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0), 
+                        tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2.0), 
+                        activeTickMarkColor: Colors.white54,
+                        inactiveTickMarkColor: Colors.white24,
+                      ),
+                      child: Slider(
+                        value: pixelsPerMinute,
+                        min: 0.75, 
+                        max: 2.0,  
+                        divisions: 5, 
+                        activeColor: const Color(0xFF4A89DC),
+                        inactiveColor: Colors.white24,
+                        onChanged: (val) {
+                          setState(() {
+                            pixelsPerMinute = val;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
+                  const SizedBox(width: 8),
+                  Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                ],
+              ),
+              const Text('空白タップ: 追加メニュー表示  |  ブロックタップ: 詳細  |  ドラッグ: 調整', 
+                style: TextStyle(color: Colors.white54, fontSize: 11)
               ),
             ],
           )
@@ -488,369 +547,389 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Widget _buildEventBlock(ScheduleEvent event) {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
+    bool isDeleting = deletingEventId == event.id; // 【追加】削除中かどうか
 
-    // 【追加】このブロックが選択中であり、かつプレビュー色があればそれを使う
     Color displayColor = (isSelected && previewColor != null) ? previewColor! : event.color;
+
+    double blockHeight = event.duration * pixelsPerMinute;
+    double centerMargin = blockHeight > 30 ? 15.0 : 0.0;
+    double handleHeight = blockHeight < 30 ? 24.0 : 30.0;
+    double handleOffset = blockHeight < 30 ? -16.0 : -10.0;
 
     return AnimatedPositioned(
       key: ValueKey(event.id),
       duration: isDragging ? Duration.zero : const Duration(milliseconds: 200), 
       curve: Curves.easeOutCubic,
       top: event.startMin * pixelsPerMinute,
-      height: event.duration * pixelsPerMinute,
+      height: blockHeight,
       left: 70,
       right: 30, 
-      child: Listener(
-        onPointerDown: (details) => _onPointerDown(details, event),
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 150),
-          opacity: isDragging ? 0.7 : 1.0,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Container(
-                  clipBehavior: Clip.hardEdge, 
-                  decoration: BoxDecoration(
-                    color: displayColor.withOpacity(0.15), // 【変更】プレビュー色を適用
-                    border: Border.all(color: displayColor, width: isSelected ? 3 : 2), // 【変更】プレビュー色を適用
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(), 
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(event.icon, color: Colors.white, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  event.title, 
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
-                                  overflow: TextOverflow.ellipsis,
+      // 【変更】削除時と追加時の両方に対応するアニメーション設定
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: isDeleting ? 0.0 : 1.0),
+        duration: const Duration(milliseconds: 350),
+        curve: isDeleting ? Curves.easeInBack : Curves.easeOutBack, 
+        builder: (context, value, child) {
+          return Transform.scale(
+            scale: value,
+            child: Opacity(
+              opacity: value.clamp(0.0, 1.0),
+              child: child,
+            ),
+          );
+        },
+        child: Listener(
+          onPointerDown: (details) => _onPointerDown(details, event),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 150),
+            opacity: isDragging ? 0.7 : 1.0,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    clipBehavior: Clip.hardEdge, 
+                    decoration: BoxDecoration(
+                      color: displayColor.withOpacity(0.15), 
+                      border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(
+                      physics: const NeverScrollableScrollPhysics(), 
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(event.icon, color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    event.title, 
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 30), 
-                            ],
-                          ),
-                          if (event.duration > 20) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                const SizedBox(width: 30), 
+                              ],
                             ),
-                          ]
-                        ],
+                            if (blockHeight > 45) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ]
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
 
-              Positioned(
-                top: 15, bottom: 15, left: 0, right: 0,
-                child: GestureDetector(
-                  onTap: () {
-                    if (isDoubleClickMode) return;
-                    _singleTapTimer?.cancel();
-                    _singleTapTimer = Timer(const Duration(milliseconds: 250), () {
-                      if (mounted && !isDoubleClickMode && draggingId == null) {
-                        setState(() {
-                          if (_isCreatingNew && selectedEvent?.id != event.id) {
-                            _cancelNewEvent(); 
+                Positioned(
+                  top: centerMargin, bottom: centerMargin, left: 0, right: 0,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (isDoubleClickMode) return;
+                      _singleTapTimer?.cancel();
+                      _singleTapTimer = Timer(const Duration(milliseconds: 250), () {
+                        if (mounted && !isDoubleClickMode && draggingId == null) {
+                          setState(() {
+                            if (_isCreatingNew && selectedEvent?.id != event.id) {
+                              _cancelNewEvent(); 
+                            }
+                            selectedEvent = event;
+                            previewColor = null; 
+                          });
+                        }
+                      });
+                    },
+                    onPanStart: (details) {
+                      setState(() {
+                        if (_isCreatingNew && selectedEvent?.id != event.id) {
+                           _cancelNewEvent();
+                        }
+                        draggingId = event.id;
+                        dragStartGlobalY = details.globalPosition.dy;
+                        preDragState = { for (var e in events) e.id: e.clone() };
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      setState(() {
+                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+
+                        if (isDoubleClickMode) {
+                          int newStart = _snap(preDragState[event.id]!.startMin + totalDelta);
+                          int dur = preDragState[event.id]!.duration;
+                          
+                          if (newStart < 0) newStart = 0;
+                          if (newStart + dur > 1440) newStart = 1440 - dur;
+
+                          int snapThreshold = 15; 
+                          int bestSnapStart = newStart;
+                          int minDiff = snapThreshold + 1;
+
+                          for (var other in events) {
+                            if (other.id == event.id) continue;
+                            int diffToEnd = (newStart - other.endMin).abs();
+                            if (diffToEnd < minDiff) {
+                              minDiff = diffToEnd;
+                              bestSnapStart = other.endMin;
+                            }
+                            int diffToStart = ((newStart + dur) - other.startMin).abs();
+                            if (diffToStart < minDiff) {
+                              minDiff = diffToStart;
+                              bestSnapStart = other.startMin - dur;
+                            }
                           }
-                          selectedEvent = event;
-                          previewColor = null; // 【変更】別のイベントを選択した時にリセット
-                        });
-                      }
-                    });
-                  },
-                  onPanStart: (details) {
-                    setState(() {
-                      if (_isCreatingNew && selectedEvent?.id != event.id) {
-                         _cancelNewEvent();
-                      }
-                      draggingId = event.id;
-                      dragStartGlobalY = details.globalPosition.dy;
-                      preDragState = { for (var e in events) e.id: e.clone() };
-                    });
-                  },
-                  onPanUpdate: (details) {
-                    setState(() {
-                      int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
 
-                      if (isDoubleClickMode) {
-                        int newStart = _snap(preDragState[event.id]!.startMin + totalDelta);
-                        int dur = preDragState[event.id]!.duration;
-                        
-                        if (newStart < 0) newStart = 0;
-                        if (newStart + dur > 1440) newStart = 1440 - dur;
+                          if (bestSnapStart < 0) bestSnapStart = 0;
+                          if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
 
-                        int snapThreshold = 15; 
-                        int bestSnapStart = newStart;
-                        int minDiff = snapThreshold + 1;
+                          event.startMin = bestSnapStart;
+                          event.endMin = bestSnapStart + dur;
 
-                        for (var other in events) {
-                          if (other.id == event.id) continue;
-                          int diffToEnd = (newStart - other.endMin).abs();
-                          if (diffToEnd < minDiff) {
-                            minDiff = diffToEnd;
-                            bestSnapStart = other.endMin;
+                        } else {
+                          for (int i = 0; i < events.length; i++) {
+                            events[i].startMin = preDragState[events[i].id]!.startMin;
+                            events[i].endMin = preDragState[events[i].id]!.endMin;
                           }
-                          int diffToStart = ((newStart + dur) - other.startMin).abs();
-                          if (diffToStart < minDiff) {
-                            minDiff = diffToStart;
-                            bestSnapStart = other.startMin - dur;
+                          events.sort((a, b) => a.startMin.compareTo(b.startMin));
+
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+
+                          ScheduleEvent dragged = events[dragIndex];
+                          ScheduleEvent preDrag = preDragState[dragged.id]!;
+                          
+                          int newStart = _snap(preDrag.startMin + totalDelta);
+                          int dur = preDrag.duration;
+
+                          int minAllowed = _getFloor(dragIndex);
+                          int maxAllowed = _getCeil(dragIndex) - dur;
+
+                          if (newStart < minAllowed) newStart = minAllowed;
+                          if (newStart > maxAllowed) newStart = maxAllowed;
+
+                          dragged.startMin = newStart;
+                          dragged.endMin = newStart + dur;
+
+                          _pushUpwards(dragIndex);
+                          _pushDownwards(dragIndex);
+                        }
+                      });
+                    },
+                    onPanEnd: (_) {
+                      setState(() {
+                        if (isDoubleClickMode) {
+                          List<List<int>> freeGaps = [];
+                          int currentMax = 0;
+                          
+                          final others = events.where((e) => e.id != event.id).toList()
+                            ..sort((a, b) => a.startMin.compareTo(b.startMin));
+
+                          for (var o in others) {
+                            if (o.startMin > currentMax) {
+                              freeGaps.add([currentMax, o.startMin]);
+                            }
+                            if (o.endMin > currentMax) {
+                              currentMax = o.endMin;
+                            }
+                          }
+                          if (1440 > currentMax) {
+                            freeGaps.add([currentMax, 1440]);
+                          }
+
+                          double dropCenter = event.startMin + event.duration / 2;
+                          List<int>? targetGap;
+
+                          for (var gap in freeGaps) {
+                            if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
+                              targetGap = gap;
+                              break;
+                            }
+                          }
+
+                          if (targetGap == null) {
+                            int maxOverlap = 0;
+                            for (var gap in freeGaps) {
+                              int overlapStart = max(gap[0], event.startMin);
+                              int overlapEnd = min(gap[1], event.endMin);
+                              int overlap = max(0, overlapEnd - overlapStart);
+                              if (overlap > maxOverlap) {
+                                maxOverlap = overlap;
+                                targetGap = gap;
+                              }
+                            }
+                          }
+
+                          bool fitSuccess = false;
+                          if (targetGap != null) {
+                            int gStart = targetGap[0];
+                            int gEnd = targetGap[1];
+                            int gDur = gEnd - gStart;
+
+                            if (gDur >= globalMinDuration) {
+                              int origDur = preDragState[event.id]!.duration;
+                              int proposedStart = event.startMin;
+                              if (proposedStart < gStart) proposedStart = gStart;
+                              
+                              int proposedEnd = proposedStart + origDur;
+                              if (proposedEnd > gEnd) {
+                                 proposedEnd = gEnd;
+                                 proposedStart = max(gStart, proposedEnd - origDur);
+                                 if (proposedEnd - proposedStart < globalMinDuration) {
+                                     proposedStart = proposedEnd - globalMinDuration;
+                                 }
+                              }
+                              
+                              event.startMin = proposedStart;
+                              event.endMin = proposedEnd;
+                              fitSuccess = true;
+                            }
+                          }
+
+                          if (!fitSuccess) {
+                            event.startMin = preDragState[event.id]!.startMin;
+                            event.endMin = preDragState[event.id]!.endMin;
                           }
                         }
+                        
+                        draggingId = null;
+                        preDragState.clear();
+                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
+                      });
+                    },
+                    onPanCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
+                    child: Container(color: Colors.transparent),
+                  ),
+                ),
 
-                        if (bestSnapStart < 0) bestSnapStart = 0;
-                        if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
-
-                        event.startMin = bestSnapStart;
-                        event.endMin = bestSnapStart + dur;
-
-                      } else {
+                Positioned(
+                  top: handleOffset, left: 0, right: 0, height: handleHeight,
+                  child: GestureDetector(
+                    onPanStart: (details) {
+                      setState(() {
+                        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+                        draggingId = event.id;
+                        dragStartGlobalY = details.globalPosition.dy;
+                        preDragState = { for (var e in events) e.id: e.clone() };
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      if (isDoubleClickMode) return;
+                      
+                      setState(() {
+                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                        
                         for (int i = 0; i < events.length; i++) {
                           events[i].startMin = preDragState[events[i].id]!.startMin;
                           events[i].endMin = preDragState[events[i].id]!.endMin;
                         }
                         events.sort((a, b) => a.startMin.compareTo(b.startMin));
-
+                        
                         int dragIndex = events.indexWhere((e) => e.id == draggingId);
                         if (dragIndex == -1) return;
-
                         ScheduleEvent dragged = events[dragIndex];
                         ScheduleEvent preDrag = preDragState[dragged.id]!;
                         
                         int newStart = _snap(preDrag.startMin + totalDelta);
-                        int dur = preDrag.duration;
-
+                        
                         int minAllowed = _getFloor(dragIndex);
-                        int maxAllowed = _getCeil(dragIndex) - dur;
+                        int maxAllowed = preDrag.endMin - globalMinDuration;
 
                         if (newStart < minAllowed) newStart = minAllowed;
                         if (newStart > maxAllowed) newStart = maxAllowed;
 
                         dragged.startMin = newStart;
-                        dragged.endMin = newStart + dur;
-
                         _pushUpwards(dragIndex);
-                        _pushDownwards(dragIndex);
-                      }
-                    });
-                  },
-                  onPanEnd: (_) {
-                    setState(() {
-                      if (isDoubleClickMode) {
-                        List<List<int>> freeGaps = [];
-                        int currentMax = 0;
-                        
-                        final others = events.where((e) => e.id != event.id).toList()
-                          ..sort((a, b) => a.startMin.compareTo(b.startMin));
-
-                        for (var o in others) {
-                          if (o.startMin > currentMax) {
-                            freeGaps.add([currentMax, o.startMin]);
-                          }
-                          if (o.endMin > currentMax) {
-                            currentMax = o.endMin;
-                          }
-                        }
-                        if (1440 > currentMax) {
-                          freeGaps.add([currentMax, 1440]);
-                        }
-
-                        double dropCenter = event.startMin + event.duration / 2;
-                        List<int>? targetGap;
-
-                        for (var gap in freeGaps) {
-                          if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
-                            targetGap = gap;
-                            break;
-                          }
-                        }
-
-                        if (targetGap == null) {
-                          int maxOverlap = 0;
-                          for (var gap in freeGaps) {
-                            int overlapStart = max(gap[0], event.startMin);
-                            int overlapEnd = min(gap[1], event.endMin);
-                            int overlap = max(0, overlapEnd - overlapStart);
-                            if (overlap > maxOverlap) {
-                              maxOverlap = overlap;
-                              targetGap = gap;
-                            }
-                          }
-                        }
-
-                        bool fitSuccess = false;
-                        if (targetGap != null) {
-                          int gStart = targetGap[0];
-                          int gEnd = targetGap[1];
-                          int gDur = gEnd - gStart;
-
-                          if (gDur >= globalMinDuration) {
-                            int origDur = preDragState[event.id]!.duration;
-                            int proposedStart = event.startMin;
-                            if (proposedStart < gStart) proposedStart = gStart;
-                            
-                            int proposedEnd = proposedStart + origDur;
-                            if (proposedEnd > gEnd) {
-                               proposedEnd = gEnd;
-                               proposedStart = max(gStart, proposedEnd - origDur);
-                               if (proposedEnd - proposedStart < globalMinDuration) {
-                                   proposedStart = proposedEnd - globalMinDuration;
-                               }
-                            }
-                            
-                            event.startMin = proposedStart;
-                            event.endMin = proposedEnd;
-                            fitSuccess = true;
-                          }
-                        }
-
-                        if (!fitSuccess) {
-                          event.startMin = preDragState[event.id]!.startMin;
-                          event.endMin = preDragState[event.id]!.endMin;
-                        }
-                      }
-                      
-                      draggingId = null;
-                      preDragState.clear();
-                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                    });
-                  },
-                  onPanCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
-                  child: Container(color: Colors.transparent),
-                ),
-              ),
-
-              Positioned(
-                top: -10, left: 0, right: 0, height: 30,
-                child: GestureDetector(
-                  onPanStart: (details) {
-                    setState(() {
-                      if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-                      draggingId = event.id;
-                      dragStartGlobalY = details.globalPosition.dy;
-                      preDragState = { for (var e in events) e.id: e.clone() };
-                    });
-                  },
-                  onPanUpdate: (details) {
-                    if (isDoubleClickMode) return;
-                    
-                    setState(() {
-                      int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                      
-                      for (int i = 0; i < events.length; i++) {
-                        events[i].startMin = preDragState[events[i].id]!.startMin;
-                        events[i].endMin = preDragState[events[i].id]!.endMin;
-                      }
-                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                      
-                      int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                      if (dragIndex == -1) return;
-                      ScheduleEvent dragged = events[dragIndex];
-                      ScheduleEvent preDrag = preDragState[dragged.id]!;
-                      
-                      int newStart = _snap(preDrag.startMin + totalDelta);
-                      
-                      int minAllowed = _getFloor(dragIndex);
-                      int maxAllowed = preDrag.endMin - globalMinDuration;
-
-                      if (newStart < minAllowed) newStart = minAllowed;
-                      if (newStart > maxAllowed) newStart = maxAllowed;
-
-                      dragged.startMin = newStart;
-                      _pushUpwards(dragIndex);
-                    });
-                  },
-                  onPanEnd: (_) => setState(() => draggingId = null),
-                  onPanCancel: () => setState(() => draggingId = null),
-                  child: Container(
-                    color: Colors.transparent,
-                    alignment: Alignment.topCenter,
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), // 【変更】プレビュー色を適用
-                  ),
-                ),
-              ),
-
-              Positioned(
-                bottom: -10, left: 0, right: 0, height: 30,
-                child: GestureDetector(
-                  onPanStart: (details) {
-                    setState(() {
-                      if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-                      draggingId = event.id;
-                      dragStartGlobalY = details.globalPosition.dy;
-                      preDragState = { for (var e in events) e.id: e.clone() };
-                    });
-                  },
-                  onPanUpdate: (details) {
-                    if (isDoubleClickMode) return; 
-                    
-                    setState(() {
-                      int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                      
-                      for (int i = 0; i < events.length; i++) {
-                        events[i].startMin = preDragState[events[i].id]!.startMin;
-                        events[i].endMin = preDragState[events[i].id]!.endMin;
-                      }
-                      events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                      
-                      int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                      if (dragIndex == -1) return;
-                      ScheduleEvent dragged = events[dragIndex];
-                      ScheduleEvent preDrag = preDragState[dragged.id]!;
-                      
-                      int newEnd = _snap(preDrag.endMin + totalDelta);
-                      
-                      int maxAllowed = _getCeil(dragIndex);
-                      int minAllowed = preDrag.startMin + globalMinDuration;
-
-                      if (newEnd > maxAllowed) newEnd = maxAllowed;
-                      if (newEnd < minAllowed) newEnd = minAllowed;
-
-                      dragged.endMin = newEnd;
-                      _pushDownwards(dragIndex);
-                    });
-                  },
-                  onPanEnd: (_) => setState(() => draggingId = null),
-                  onPanCancel: () => setState(() => draggingId = null),
-                  child: Container(
-                    color: Colors.transparent,
-                    alignment: Alignment.bottomCenter,
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), // 【変更】プレビュー色を適用
-                  ),
-                ),
-              ),
-
-              Positioned(
-                top: 4, right: 6,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      event.isPinned = !event.isPinned;
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    color: Colors.transparent, 
-                    child: Icon(
-                      event.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                      color: event.isPinned ? Colors.white : Colors.white54,
-                      size: 20,
+                      });
+                    },
+                    onPanEnd: (_) => setState(() => draggingId = null),
+                    onPanCancel: () => setState(() => draggingId = null),
+                    child: Container(
+                      color: Colors.transparent,
+                      alignment: Alignment.topCenter,
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), 
                     ),
                   ),
                 ),
-              ),
-            ],
+
+                Positioned(
+                  bottom: handleOffset, left: 0, right: 0, height: handleHeight,
+                  child: GestureDetector(
+                    onPanStart: (details) {
+                      setState(() {
+                        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+                        draggingId = event.id;
+                        dragStartGlobalY = details.globalPosition.dy;
+                        preDragState = { for (var e in events) e.id: e.clone() };
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      if (isDoubleClickMode) return; 
+                      
+                      setState(() {
+                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                        
+                        for (int i = 0; i < events.length; i++) {
+                          events[i].startMin = preDragState[events[i].id]!.startMin;
+                          events[i].endMin = preDragState[events[i].id]!.endMin;
+                        }
+                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
+                        
+                        int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                        if (dragIndex == -1) return;
+                        ScheduleEvent dragged = events[dragIndex];
+                        ScheduleEvent preDrag = preDragState[dragged.id]!;
+                        
+                        int newEnd = _snap(preDrag.endMin + totalDelta);
+                        
+                        int maxAllowed = _getCeil(dragIndex);
+                        int minAllowed = preDrag.startMin + globalMinDuration;
+
+                        if (newEnd > maxAllowed) newEnd = maxAllowed;
+                        if (newEnd < minAllowed) newEnd = minAllowed;
+
+                        dragged.endMin = newEnd;
+                        _pushDownwards(dragIndex);
+                      });
+                    },
+                    onPanEnd: (_) => setState(() => draggingId = null),
+                    onPanCancel: () => setState(() => draggingId = null),
+                    child: Container(
+                      color: Colors.transparent,
+                      alignment: Alignment.bottomCenter,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), 
+                    ),
+                  ),
+                ),
+
+                Positioned(
+                  top: 4, right: 6,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        event.isPinned = !event.isPinned;
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      color: Colors.transparent, 
+                      child: Icon(
+                        event.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                        color: event.isPinned ? Colors.white : Colors.white54,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -870,24 +949,26 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 class EventDetailPanel extends StatefulWidget {
   final ScheduleEvent event;
   final List<ScheduleEvent> allEvents; 
+  // 【変更】親から確実な状態を受け取るためプロパティを追加
+  final bool isCreatingNew; 
   final bool startInEditMode; 
   final VoidCallback onClose;
   final ValueChanged<ScheduleEvent> onSave;
   final VoidCallback onDelete;
   final VoidCallback onCancelNew; 
-  // 【追加】色をプレビューさせるためのコールバック（nullの場合はリセット）
   final ValueChanged<Color?> onColorPreview;
 
   const EventDetailPanel({
     super.key,
     required this.event,
     required this.allEvents,
+    required this.isCreatingNew, // 【変更】
     this.startInEditMode = false,
     required this.onClose,
     required this.onSave,
     required this.onDelete,
     required this.onCancelNew,
-    required this.onColorPreview, // 【追加】
+    required this.onColorPreview, 
   });
 
   @override
@@ -944,9 +1025,8 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   }
 
   void _initControllers() {
-    bool isNew = widget.event.id.startsWith('new_');
-    _titleController = TextEditingController(text: isNew ? '' : widget.event.title);
-    _locationController = TextEditingController(text: isNew ? '' : widget.event.location);
+    _titleController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.title); // 【変更】判定ロジックの修正
+    _locationController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.location); // 【変更】判定ロジックの修正
     _notesController = TextEditingController(text: widget.event.notes);
     _editStartMin = widget.event.startMin;
     _editEndMin = widget.event.endMin;
@@ -975,7 +1055,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
         return Theme(
           data: ThemeData.dark().copyWith(
             colorScheme: ColorScheme.dark(
-              primary: _editColor, // 【変更】編集中の一時カラーを適用
+              primary: _editColor, 
             ),
           ),
           child: child!,
@@ -1062,7 +1142,8 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
                 ),
                 GestureDetector(
                   onTap: () {
-                    if (widget.event.id.startsWith('new_') && _isEditing) {
+                    // 【変更】確実な状態で判定する
+                    if (widget.isCreatingNew) {
                       widget.onCancelNew();
                     } else {
                       widget.onClose();
@@ -1161,7 +1242,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
           controller: _titleController,
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           decoration: _inputDecoration('タスク名を入力'),
-          autofocus: widget.event.id.startsWith('new_'), 
+          autofocus: widget.isCreatingNew, // 【変更】確実な状態で判定する
         ),
         
         const SizedBox(height: 24),
@@ -1178,7 +1259,6 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
                 setState(() {
                   _editColor = color;
                 });
-                // 【追加】色が変わった瞬間に親ウィジェットへ通知し、プレビューさせる
                 widget.onColorPreview(color); 
               },
               child: Container(
@@ -1294,14 +1374,14 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
             Expanded(
               child: OutlinedButton(
                 onPressed: () {
-                  if (widget.event.id.startsWith('new_') && _isEditing) {
+                  // 【変更】確実な状態で判定する
+                  if (widget.isCreatingNew) {
                     widget.onCancelNew();
                   } else {
                     setState(() {
                       _isEditing = false;
                       _initControllers(); 
                     });
-                    // 【追加】キャンセル時はプレビュー色を元のイベントの色に戻す（nullにしてリセットする）
                     widget.onColorPreview(null);
                   }
                 },
@@ -1333,7 +1413,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: _editColor, width: 1.5), // 【変更】フォーカス時の枠線も編集中の一時カラーに
+        borderSide: BorderSide(color: _editColor, width: 1.5), 
       ),
     );
   }
