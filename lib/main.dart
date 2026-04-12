@@ -80,6 +80,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   ScheduleEvent? selectedEvent; 
   bool _isCreatingNew = false; 
   
+  // 【追加】プレビュー用の色を保持する変数
+  Color? previewColor;
+
   DateTime? lastTapTime;
   String? lastTapEventId;
   Timer? _singleTapTimer; 
@@ -87,14 +90,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Map<String, ScheduleEvent> preDragState = {};
   double dragStartGlobalY = 0.0;
 
-  // 初期配置のスケジュール
   List<ScheduleEvent> events = [
     ScheduleEvent(id: '1', title: 'Morning Task (朝食)', icon: Icons.wb_sunny_outlined, color: const Color(0xFF4A89DC), startMin: 480, endMin: 600, location: '自宅 ダイニング', notes: '今日のタスク整理とメールチェックを済ませる。ゆっくりコーヒーを飲む。'),
     ScheduleEvent(id: '2', title: 'Deep Work (勉強)', icon: Icons.psychology_outlined, color: const Color(0xFF8CC152), startMin: 660, endMin: 780, location: '駅前のカフェ', notes: 'FlutterのUI実装と状態管理の復習。参考書の第3章を終わらせる。'),
     ScheduleEvent(id: '3', title: 'Meeting (荷物待ち)', icon: Icons.people_outline, color: const Color(0xFFF6BB42), startMin: 840, endMin: 930, location: '自宅', notes: '14:00〜16:00の間に宅配便が届くので待機する。'),
   ];
 
-  // テンプレートデータの定義
   final List<ScheduleEvent> templates = [
     ScheduleEvent(id: 'tpl_1', title: '運動 (ジム)', icon: Icons.fitness_center, color: const Color(0xFFFC6E51), startMin: 0, endMin: 60),
     ScheduleEvent(id: 'tpl_2', title: '読書', icon: Icons.menu_book, color: const Color(0xFF48CFAD), startMin: 0, endMin: 45),
@@ -187,6 +188,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         events.sort((a, b) => a.startMin.compareTo(b.startMin));
         selectedEvent = updatedEvent; 
         _isCreatingNew = false;
+        previewColor = null; // 【変更】保存時にプレビューをリセット
       }
     });
   }
@@ -197,6 +199,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       if (selectedEvent?.id == eventId) {
         selectedEvent = null; 
         _isCreatingNew = false;
+        previewColor = null; // 【変更】削除時にプレビューをリセット
       }
     });
   }
@@ -206,12 +209,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       events.removeWhere((e) => e.id == selectedEvent?.id);
       selectedEvent = null;
       _isCreatingNew = false;
+      previewColor = null; // 【変更】キャンセル時にプレビューをリセット
     });
   }
 
-  // ----------------------------------------------------------------------
-  // イベントの新規追加ロジック（白紙・テンプレート共通）
-  // ----------------------------------------------------------------------
   void _addEventAt(int startMin, {ScheduleEvent? template}) {
     int maxAllowed = 1440;
     for (var e in events) {
@@ -224,7 +225,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     int endMin = min(startMin + desiredDur, maxAllowed);
 
     if (endMin - startMin < globalMinDuration) {
-      // 十分な空き時間がない場合はスナックバーで通知して終了
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('予定を配置する十分な空き時間がありません')),
       );
@@ -246,14 +246,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       events.add(newEvent);
       events.sort((a, b) => a.startMin.compareTo(b.startMin));
       selectedEvent = newEvent;
-      // テンプレート使用時はすぐに確定状態にし、白紙の時は編集モードにする
       _isCreatingNew = template == null; 
+      previewColor = null; // 【変更】新規作成時にプレビューをリセット
     });
   }
 
-  // ----------------------------------------------------------------------
-  // テンプレート選択メニュー (BottomSheet) の表示
-  // ----------------------------------------------------------------------
   void _showTemplateMenu(BuildContext context, int tappedMin) {
     showModalBottomSheet(
       context: context,
@@ -276,7 +273,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 ),
                 const SizedBox(height: 16),
                 
-                // 新規作成（白紙）ボタン
                 ListTile(
                   leading: Container(
                     padding: const EdgeInsets.all(8),
@@ -286,7 +282,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
                   onTap: () {
                     Navigator.pop(context);
-                    _addEventAt(tappedMin); // テンプレートなしで追加
+                    _addEventAt(tappedMin);
                   },
                 ),
                 
@@ -296,7 +292,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   child: Text('テンプレートから選ぶ', style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold)),
                 ),
                 
-                // テンプレート一覧
                 Wrap(
                   spacing: 12,
                   runSpacing: 12,
@@ -308,7 +303,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     onPressed: () {
                       Navigator.pop(context);
-                      _addEventAt(tappedMin, template: tpl); // テンプレートを指定して追加
+                      _addEventAt(tappedMin, template: tpl);
                     },
                   )).toList(),
                 ),
@@ -364,6 +359,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                         setState(() {
                                           if (_isCreatingNew) _cancelNewEvent(); 
                                           selectedEvent = null;
+                                          previewColor = null; // 【変更】閉じる時にプレビューをリセット
                                         });
                                         return;
                                       }
@@ -374,7 +370,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                       bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
                                       if (isOverlapping) return;
 
-                                      // 空白タップ時にメニューを表示
                                       _showTemplateMenu(context, tappedMin);
                                     },
                                   ),
@@ -419,12 +414,21 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     if (_isCreatingNew) {
                       _cancelNewEvent();
                     } else {
-                      setState(() => selectedEvent = null);
+                      setState(() {
+                        selectedEvent = null;
+                        previewColor = null; // 【変更】閉じる時にプレビューをリセット
+                      });
                     }
                   },
                   onSave: _updateEvent,
                   onDelete: () => _deleteEvent(selectedEvent!.id),
                   onCancelNew: _cancelNewEvent, 
+                  // 【追加】パネルからの色変更の通知を受け取る
+                  onColorPreview: (color) {
+                    setState(() {
+                      previewColor = color;
+                    });
+                  },
                 ),
               ),
           ],
@@ -444,14 +448,14 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               const Text(
-                'Advanced Scheduler',
+                'Planorh',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               Row(
                 children: [
                   _buildStatItem('BUSY TIME', '${busyHours.toStringAsFixed(1)} hrs'),
                   const SizedBox(width: 20),
-                  _buildStatItem('FREE SPACE', '${freeHours.toStringAsFixed(1)} hrs'),
+                  _buildStatItem('FREE time', '${freeHours.toStringAsFixed(1)} hrs'),
                 ],
               )
             ],
@@ -485,6 +489,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
 
+    // 【追加】このブロックが選択中であり、かつプレビュー色があればそれを使う
+    Color displayColor = (isSelected && previewColor != null) ? previewColor! : event.color;
+
     return AnimatedPositioned(
       key: ValueKey(event.id),
       duration: isDragging ? Duration.zero : const Duration(milliseconds: 200), 
@@ -504,8 +511,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 child: Container(
                   clipBehavior: Clip.hardEdge, 
                   decoration: BoxDecoration(
-                    color: event.color.withOpacity(0.15),
-                    border: Border.all(color: event.color, width: isSelected ? 3 : 2),
+                    color: displayColor.withOpacity(0.15), // 【変更】プレビュー色を適用
+                    border: Border.all(color: displayColor, width: isSelected ? 3 : 2), // 【変更】プレビュー色を適用
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: SingleChildScrollView(
@@ -556,6 +563,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                             _cancelNewEvent(); 
                           }
                           selectedEvent = event;
+                          previewColor = null; // 【変更】別のイベントを選択した時にリセット
                         });
                       }
                     });
@@ -767,7 +775,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     color: Colors.transparent,
                     alignment: Alignment.topCenter,
                     padding: const EdgeInsets.only(top: 6),
-                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle)),
+                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), // 【変更】プレビュー色を適用
                   ),
                 ),
               ),
@@ -818,7 +826,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     color: Colors.transparent,
                     alignment: Alignment.bottomCenter,
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle)),
+                    child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), // 【変更】プレビュー色を適用
                   ),
                 ),
               ),
@@ -867,6 +875,8 @@ class EventDetailPanel extends StatefulWidget {
   final ValueChanged<ScheduleEvent> onSave;
   final VoidCallback onDelete;
   final VoidCallback onCancelNew; 
+  // 【追加】色をプレビューさせるためのコールバック（nullの場合はリセット）
+  final ValueChanged<Color?> onColorPreview;
 
   const EventDetailPanel({
     super.key,
@@ -877,6 +887,7 @@ class EventDetailPanel extends StatefulWidget {
     required this.onSave,
     required this.onDelete,
     required this.onCancelNew,
+    required this.onColorPreview, // 【追加】
   });
 
   @override
@@ -888,10 +899,23 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   late TextEditingController _titleController;
   late TextEditingController _locationController;
   late TextEditingController _notesController;
+  
+  late Color _editColor; 
 
   int _editStartMin = 0;
   int _editEndMin = 0;
   String? _timeError;
+
+  final List<Color> _colorPalette = [
+    const Color(0xFF5D9CEC), // Blue
+    const Color(0xFF48CFAD), // Mint
+    const Color(0xFF8CC152), // Green
+    const Color(0xFFFFCE54), // Yellow
+    const Color(0xFFF6BB42), // Orange
+    const Color(0xFFFC6E51), // Red-Orange
+    const Color(0xFFED5565), // Red
+    const Color(0xFF967ADC), // Purple
+  ];
 
   @override
   void initState() {
@@ -926,6 +950,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     _notesController = TextEditingController(text: widget.event.notes);
     _editStartMin = widget.event.startMin;
     _editEndMin = widget.event.endMin;
+    _editColor = widget.event.color;
     _timeError = null;
   }
 
@@ -950,7 +975,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
         return Theme(
           data: ThemeData.dark().copyWith(
             colorScheme: ColorScheme.dark(
-              primary: widget.event.color, 
+              primary: _editColor, // 【変更】編集中の一時カラーを適用
             ),
           ),
           child: child!,
@@ -1001,6 +1026,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     updatedEvent.notes = _notesController.text;
     updatedEvent.startMin = _editStartMin;
     updatedEvent.endMin = _editEndMin;
+    updatedEvent.color = _editColor;
     
     widget.onSave(updatedEvent);
     setState(() {
@@ -1139,6 +1165,42 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
         ),
         
         const SizedBox(height: 24),
+
+        const Text('カラー', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: _colorPalette.map((color) {
+            bool isSelected = _editColor.value == color.value;
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _editColor = color;
+                });
+                // 【追加】色が変わった瞬間に親ウィジェットへ通知し、プレビューさせる
+                widget.onColorPreview(color); 
+              },
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: isSelected ? Border.all(color: Colors.white, width: 3) : null,
+                  boxShadow: isSelected
+                      ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 2)]
+                      : null,
+                ),
+                child: isSelected
+                    ? const Icon(Icons.check, color: Colors.white, size: 20)
+                    : null,
+              ),
+            );
+          }).toList(),
+        ),
+
+        const SizedBox(height: 24),
         
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1239,6 +1301,8 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
                       _isEditing = false;
                       _initControllers(); 
                     });
+                    // 【追加】キャンセル時はプレビュー色を元のイベントの色に戻す（nullにしてリセットする）
+                    widget.onColorPreview(null);
                   }
                 },
                 style: OutlinedButton.styleFrom(
@@ -1269,7 +1333,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: widget.event.color, width: 1.5),
+        borderSide: BorderSide(color: _editColor, width: 1.5), // 【変更】フォーカス時の枠線も編集中の一時カラーに
       ),
     );
   }
