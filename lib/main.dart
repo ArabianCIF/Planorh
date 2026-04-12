@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'dart:math';
 import 'dart:async';
 
@@ -72,9 +73,7 @@ class InteractiveSchedule extends StatefulWidget {
 
 class _InteractiveScheduleState extends State<InteractiveSchedule> {
   final int snapInterval = 1; 
-  
   double pixelsPerMinute = 1.0; 
-  
   final int globalMinDuration = 10; 
 
   String? draggingId;
@@ -83,9 +82,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   bool _isCreatingNew = false; 
   
   Color? previewColor;
+  IconData? previewIcon; // 【追加】プレビュー用のアイコン
+  int? previewStartMin;
+  int? previewEndMin;
+
   String? deletingEventId; 
 
-  // 【追加】空白ドラッグ作成用の状態変数
   int? dragCreateStartMin;
   int? dragCreateCurrentMin;
 
@@ -195,6 +197,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         selectedEvent = updatedEvent; 
         _isCreatingNew = false;
         previewColor = null; 
+        previewIcon = null; // 【追加】
+        previewStartMin = null; 
+        previewEndMin = null;   
       }
     });
   }
@@ -206,6 +211,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         selectedEvent = null; 
         _isCreatingNew = false;
         previewColor = null; 
+        previewIcon = null; // 【追加】
+        previewStartMin = null; 
+        previewEndMin = null;   
       }
     });
 
@@ -227,10 +235,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       selectedEvent = null;
       _isCreatingNew = false;
       previewColor = null; 
+      previewIcon = null; // 【追加】
+      previewStartMin = null; 
+      previewEndMin = null;   
     });
   }
 
-  // 【変更】specificDuration（ドラッグで指定された長さ）を受け取れるようにする
   void _addEventAt(int startMin, {ScheduleEvent? template, int? specificDuration}) {
     int maxAllowed = 1440;
     for (var e in events) {
@@ -239,7 +249,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       }
     }
 
-    // specificDuration があれば優先、なければテンプレートの長さ、それもなければ60分
     int desiredDur = specificDuration ?? (template != null ? template.duration : 60);
     int endMin = min(startMin + desiredDur, maxAllowed);
 
@@ -267,6 +276,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       selectedEvent = newEvent;
       _isCreatingNew = template == null; 
       previewColor = null; 
+      previewIcon = null; // 【追加】
+      previewStartMin = null;
+      previewEndMin = null;
     });
   }
 
@@ -380,6 +392,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                               if (_isCreatingNew) _cancelNewEvent(); 
                                               selectedEvent = null;
                                               previewColor = null; 
+                                              previewIcon = null; // 【追加】
+                                              previewStartMin = null; 
+                                              previewEndMin = null;
                                             });
                                             return;
                                           }
@@ -392,13 +407,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
                                           _showTemplateMenu(context, tappedMin);
                                         },
-                                        // 【追加】空白部分のドラッグ作成のイベント処理
                                         onVerticalDragStart: (details) {
                                           if (selectedEvent != null) return;
                                           int min = (details.localPosition.dy / pixelsPerMinute).round();
                                           min = (min / 10).round() * 10;
                                           
-                                          // タップした開始地点が既にブロックで埋まっている場合はドラッグ無効
                                           bool isOverlapping = events.any((e) => min >= e.startMin && min < e.endMin);
                                           if (isOverlapping) return;
 
@@ -429,7 +442,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
                                           int start = min<int>(dragCreateStartMin!, dragCreateCurrentMin!);
                                           int end = max<int>(dragCreateStartMin!, dragCreateCurrentMin!);
-                                          int tapStart = dragCreateStartMin!; // 最初にクリックした位置を保持
+                                          int tapStart = dragCreateStartMin!; 
 
                                           setState(() {
                                             dragCreateStartMin = null;
@@ -437,18 +450,14 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                           });
 
                                           if (end - start < globalMinDuration) {
-                                            // ドラッグ量が少ない場合は onTapUp に任せるので無視
                                             return;
                                           }
 
-                                          // ドラッグした範囲内に既存のブロックがあるか確認
                                           bool isOverlapping = events.any((e) => start < e.endMin && end > e.startMin);
                                           
                                           if (isOverlapping) {
-                                            // 被りがある場合は、最初にクリックした部分に今まで通りメニューを表示
                                             _showTemplateMenu(context, tapStart);
                                           } else {
-                                            // 被りがない場合は、その指定された時間分の予定ブロック(白紙)を直接作成
                                             _addEventAt(start, specificDuration: end - start);
                                           }
                                         },
@@ -474,7 +483,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                       ),
                                     ...eventWidgets,
                                     
-                                    // 【追加】ドラッグ作成中のプレビュー（紫色の枠）
                                     if (dragCreateStartMin != null && dragCreateCurrentMin != null)
                                       Positioned(
                                         top: min<int>(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
@@ -517,6 +525,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                 setState(() {
                                   selectedEvent = null;
                                   previewColor = null; 
+                                  previewIcon = null; // 【追加】
+                                  previewStartMin = null; 
+                                  previewEndMin = null;
                                 });
                               }
                             },
@@ -526,6 +537,23 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                             onColorPreview: (color) {
                               setState(() {
                                 previewColor = color;
+                              });
+                            },
+                            // 【追加】アイコンのプレビュー
+                            onIconPreview: (icon) {
+                              setState(() {
+                                previewIcon = icon;
+                              });
+                            },
+                            onTimePreview: (List<int>? times) {
+                              setState(() {
+                                if (times != null) {
+                                  previewStartMin = times[0];
+                                  previewEndMin = times[1];
+                                } else {
+                                  previewStartMin = null;
+                                  previewEndMin = null;
+                                }
                               });
                             },
                           ),
@@ -628,8 +656,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     bool isDeleting = deletingEventId == event.id; 
 
     Color displayColor = (isSelected && previewColor != null) ? previewColor! : event.color;
+    IconData displayIcon = (isSelected && previewIcon != null) ? previewIcon! : event.icon; // 【追加】プレビューアイコンを適用
+    
+    int displayStartMin = (isSelected && previewStartMin != null) ? previewStartMin! : event.startMin;
+    int displayEndMin = (isSelected && previewEndMin != null) ? previewEndMin! : event.endMin;
+    int displayDuration = displayEndMin - displayStartMin;
 
-    double blockHeight = event.duration * pixelsPerMinute;
+    double blockHeight = displayDuration * pixelsPerMinute;
     double centerMargin = blockHeight > 30 ? 15.0 : 0.0;
     double handleHeight = blockHeight < 30 ? 24.0 : 30.0;
     double handleOffset = blockHeight < 30 ? -16.0 : -10.0;
@@ -638,7 +671,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       key: ValueKey(event.id),
       duration: isDragging ? Duration.zero : const Duration(milliseconds: 200), 
       curve: Curves.easeOutCubic,
-      top: event.startMin * pixelsPerMinute,
+      top: displayStartMin * pixelsPerMinute, 
       height: blockHeight,
       left: 70,
       right: 30, 
@@ -679,7 +712,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           children: [
                             Row(
                               children: [
-                                Icon(event.icon, color: Colors.white, size: 20),
+                                Icon(displayIcon, color: Colors.white, size: 20), // 【変更】プレビューアイコンを適用
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -694,7 +727,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                             if (blockHeight > 45) ...[
                               const SizedBox(height: 4),
                               Text(
-                                '${_formatTime(event.startMin)} - ${_formatTime(event.endMin)}',
+                                '${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', 
                                 style: const TextStyle(color: Colors.white70, fontSize: 12),
                               ),
                             ]
@@ -719,6 +752,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                             }
                             selectedEvent = event;
                             previewColor = null; 
+                            previewIcon = null; // 【追加】
+                            previewStartMin = null;
+                            previewEndMin = null;
                           });
                         }
                       });
@@ -731,6 +767,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         draggingId = event.id;
                         dragStartGlobalY = details.globalPosition.dy;
                         preDragState = { for (var e in events) e.id: e.clone() };
+                        previewStartMin = null;
+                        previewEndMin = null;
                       });
                     },
                     onPanUpdate: (details) {
@@ -893,6 +931,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         draggingId = event.id;
                         dragStartGlobalY = details.globalPosition.dy;
                         preDragState = { for (var e in events) e.id: e.clone() };
+                        previewStartMin = null;
+                        previewEndMin = null;
                       });
                     },
                     onPanUpdate: (details) {
@@ -944,6 +984,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                         draggingId = event.id;
                         dragStartGlobalY = details.globalPosition.dy;
                         preDragState = { for (var e in events) e.id: e.clone() };
+                        previewStartMin = null;
+                        previewEndMin = null;
                       });
                     },
                     onPanUpdate: (details) {
@@ -1021,6 +1063,145 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 }
 
 // =========================================================================
+// 新規追加: ドラムロール式・ロック機能付きカスタムTimePicker
+// =========================================================================
+class CustomTimePicker extends StatefulWidget {
+  final int value;
+  final int minMinute;
+  final int maxMinute;
+  final ValueChanged<int> onChanged;
+
+  const CustomTimePicker({
+    super.key, 
+    required this.value, 
+    required this.minMinute,
+    required this.maxMinute,
+    required this.onChanged
+  });
+
+  @override
+  State<CustomTimePicker> createState() => _CustomTimePickerState();
+}
+
+class _CustomTimePickerState extends State<CustomTimePicker> {
+  late FixedExtentScrollController _hourController;
+  late FixedExtentScrollController _minuteController;
+  
+  final int _baseMinute = 100000 * 60; 
+
+  @override
+  void initState() {
+    super.initState();
+    int safeValue = widget.value;
+    if (safeValue < widget.minMinute) safeValue = widget.minMinute;
+    if (safeValue > widget.maxMinute) safeValue = widget.maxMinute;
+
+    _hourController = FixedExtentScrollController(initialItem: safeValue ~/ 60);
+    _minuteController = FixedExtentScrollController(initialItem: _baseMinute + safeValue);
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomTimePicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      int targetHour = widget.value ~/ 60;
+      int targetMinIndex = _baseMinute + widget.value;
+
+      if (_hourController.hasClients && _hourController.selectedItem != targetHour) {
+        _hourController.jumpToItem(targetHour);
+      }
+      if (_minuteController.hasClients && _minuteController.selectedItem != targetMinIndex) {
+        _minuteController.jumpToItem(targetMinIndex);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _hourController.dispose();
+    _minuteController.dispose();
+    super.dispose();
+  }
+
+  void _updateFromMinute(int index) {
+    int newTotal = index - _baseMinute;
+    
+    if (newTotal < widget.minMinute) {
+      newTotal = widget.minMinute;
+    } else if (newTotal > widget.maxMinute) {
+      newTotal = widget.maxMinute;
+    }
+
+    if (newTotal != widget.value) {
+      widget.onChanged(newTotal);
+    } else {
+      int targetMinIndex = _baseMinute + widget.value;
+      if (_minuteController.selectedItem != targetMinIndex) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_minuteController.hasClients) _minuteController.jumpToItem(targetMinIndex);
+        });
+      }
+    }
+  }
+
+  void _updateFromHour(int index) {
+    int currentMin = widget.value % 60;
+    int newTotal = index * 60 + currentMin;
+    
+    if (newTotal < widget.minMinute) {
+      newTotal = widget.minMinute;
+    } else if (newTotal > widget.maxMinute) {
+      newTotal = widget.maxMinute;
+    }
+
+    if (newTotal != widget.value) {
+      widget.onChanged(newTotal);
+    } else {
+      int targetHour = widget.value ~/ 60;
+      if (_hourController.selectedItem != targetHour) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_hourController.hasClients) _hourController.jumpToItem(targetHour);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: CupertinoPicker.builder(
+            scrollController: _hourController,
+            itemExtent: 44,
+            selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: Colors.white.withOpacity(0.08)),
+            onSelectedItemChanged: _updateFromHour,
+            itemBuilder: (context, index) {
+              if (index < 0 || index > 24) return null;
+              return Center(child: Text(index.toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26)));
+            },
+          ),
+        ),
+        const Text(':', style: TextStyle(color: Colors.white54, fontSize: 26, fontWeight: FontWeight.bold)),
+        Expanded(
+          child: CupertinoPicker.builder(
+            scrollController: _minuteController,
+            itemExtent: 44,
+            selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: Colors.white.withOpacity(0.08)),
+            onSelectedItemChanged: _updateFromMinute,
+            itemBuilder: (context, index) {
+              int val = index - _baseMinute;
+              if (val < 0 || val > 1440) return null;
+              return Center(child: Text((val % 60).toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26)));
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// =========================================================================
 // 詳細パネル用ウィジェット
 // =========================================================================
 class EventDetailPanel extends StatefulWidget {
@@ -1033,6 +1214,8 @@ class EventDetailPanel extends StatefulWidget {
   final VoidCallback onDelete;
   final VoidCallback onCancelNew; 
   final ValueChanged<Color?> onColorPreview;
+  final ValueChanged<IconData?> onIconPreview; // 【追加】アイコンプレビューのコールバック
+  final ValueChanged<List<int>?> onTimePreview; 
 
   const EventDetailPanel({
     super.key,
@@ -1045,6 +1228,8 @@ class EventDetailPanel extends StatefulWidget {
     required this.onDelete,
     required this.onCancelNew,
     required this.onColorPreview, 
+    required this.onIconPreview, // 【追加】
+    required this.onTimePreview, 
   });
 
   @override
@@ -1058,20 +1243,46 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   late TextEditingController _notesController;
   
   late Color _editColor; 
+  late IconData _editIcon; // 【追加】編集中のアイコンを保持
 
   int _editStartMin = 0;
   int _editEndMin = 0;
   String? _timeError;
 
+  // 【変更】カラーパレットを12色に拡張
   final List<Color> _colorPalette = [
     const Color(0xFF5D9CEC), // Blue
+    const Color(0xFF4FC1E9), // Cyan
     const Color(0xFF48CFAD), // Mint
     const Color(0xFF8CC152), // Green
     const Color(0xFFFFCE54), // Yellow
     const Color(0xFFF6BB42), // Orange
     const Color(0xFFFC6E51), // Red-Orange
     const Color(0xFFED5565), // Red
+    const Color(0xFFDA4453), // Deep Red
+    const Color(0xFFD770AD), // Pink
     const Color(0xFF967ADC), // Purple
+    const Color(0xFFAAB2BD), // Gray
+  ];
+
+  // 【追加】使いやすいアイコンのパレット（16種類）
+  final List<IconData> _iconPalette = [
+    Icons.event_note,
+    Icons.wb_sunny_outlined,
+    Icons.psychology_outlined,
+    Icons.people_outline,
+    Icons.fitness_center,
+    Icons.menu_book,
+    Icons.computer,
+    Icons.restaurant,
+    Icons.shopping_cart_outlined,
+    Icons.train,
+    Icons.local_cafe_outlined,
+    Icons.phone_in_talk_outlined,
+    Icons.music_note_outlined,
+    Icons.movie_creation_outlined,
+    Icons.home_outlined,
+    Icons.work_outline,
   ];
 
   @override
@@ -1107,6 +1318,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     _editStartMin = widget.event.startMin;
     _editEndMin = widget.event.endMin;
     _editColor = widget.event.color;
+    _editIcon = widget.event.icon; // 【追加】アイコンの初期化
     _timeError = null;
   }
 
@@ -1118,45 +1330,148 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     super.dispose();
   }
 
-  Future<void> _selectTime(BuildContext context, bool isStart) async {
-    final initialTime = TimeOfDay(
-      hour: (isStart ? _editStartMin : _editEndMin) ~/ 60,
-      minute: (isStart ? _editStartMin : _editEndMin) % 60,
-    );
-    
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: ColorScheme.dark(
-              primary: _editColor, 
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        int pickedMin = picked.hour * 60 + picked.minute;
-        if (isStart) {
-          _editStartMin = pickedMin;
-          if (_editStartMin >= _editEndMin) {
-            _editEndMin = _editStartMin + 10;
-          }
-        } else {
-          _editEndMin = pickedMin;
-          if (_editEndMin <= _editStartMin) {
-            _editStartMin = _editEndMin - 10;
-            if (_editStartMin < 0) _editStartMin = 0;
-          }
-        }
-        _timeError = null; 
-      });
+  int _getGapStart() {
+    int gapStart = 0;
+    for (var other in widget.allEvents) {
+      if (other.id == widget.event.id) continue;
+      if (other.endMin <= widget.event.startMin) {
+        if (other.endMin > gapStart) gapStart = other.endMin;
+      }
     }
+    return gapStart;
+  }
+
+  int _getGapEnd() {
+    int gapEnd = 1440;
+    for (var other in widget.allEvents) {
+      if (other.id == widget.event.id) continue;
+      if (other.startMin >= widget.event.endMin) {
+        if (other.startMin < gapEnd) gapEnd = other.startMin;
+      }
+    }
+    return gapEnd;
+  }
+
+  void _updateTimeState(int pickedMin, bool isStart) {
+    int minDur = 10;
+    setState(() {
+      if (isStart) {
+        _editStartMin = pickedMin;
+        if (_editStartMin > _editEndMin - minDur) {
+          _editEndMin = _editStartMin + minDur; 
+        }
+      } else {
+        _editEndMin = pickedMin;
+        if (_editEndMin < _editStartMin + minDur) {
+          _editStartMin = _editEndMin - minDur; 
+        }
+      }
+      _timeError = null; 
+    });
+    widget.onTimePreview([_editStartMin, _editEndMin]);
+  }
+
+  void _showTimePickerModal(BuildContext context, bool isStart) {
+    int gapStart = _getGapStart();
+    int gapEnd = _getGapEnd();
+    int minLimit = isStart ? gapStart : gapStart + 10;
+    int maxLimit = isStart ? gapEnd - 10 : gapEnd;
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent, 
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Align(
+              alignment: Alignment.centerRight,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: MediaQuery.of(context).size.width * 0.45, 
+                  margin: const EdgeInsets.only(right: 16), 
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2D35), 
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 8))
+                    ],
+                    border: Border.all(color: Colors.white10, width: 1),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () async {
+                                Navigator.pop(dialogContext); 
+                                final initialTime = TimeOfDay(
+                                  hour: (isStart ? _editStartMin : _editEndMin) ~/ 60,
+                                  minute: (isStart ? _editStartMin : _editEndMin) % 60,
+                                );
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: initialTime,
+                                  initialEntryMode: TimePickerEntryMode.input, 
+                                  builder: (context, child) {
+                                    return Theme(
+                                      data: ThemeData.dark().copyWith(
+                                        colorScheme: ColorScheme.dark(primary: _editColor),
+                                      ),
+                                      child: child!,
+                                    );
+                                  },
+                                );
+                                if (picked != null) {
+                                  int pickedTotal = picked.hour * 60 + picked.minute;
+                                  if (pickedTotal < minLimit) pickedTotal = minLimit;
+                                  if (pickedTotal > maxLimit) pickedTotal = maxLimit;
+                                  _updateTimeState(pickedTotal, isStart);
+                                }
+                              },
+                              icon: const Icon(Icons.keyboard, color: Colors.white54, size: 18),
+                              label: const Text('手入力', style: TextStyle(color: Colors.white54)),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _editColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                              ),
+                              child: const Text('完了', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          height: 200,
+                          child: CustomTimePicker(
+                            value: isStart ? _editStartMin : _editEndMin,
+                            minMinute: minLimit, 
+                            maxMinute: maxLimit, 
+                            onChanged: (newMin) {
+                              setDialogState(() {
+                                _updateTimeState(newMin, isStart);
+                              });
+                            }
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+        );
+      }
+    );
   }
 
   void _saveChanges() {
@@ -1183,6 +1498,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     updatedEvent.startMin = _editStartMin;
     updatedEvent.endMin = _editEndMin;
     updatedEvent.color = _editColor;
+    updatedEvent.icon = _editIcon; // 【追加】変更したアイコンを保存
     
     widget.onSave(updatedEvent);
     setState(() {
@@ -1322,6 +1638,37 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
         
         const SizedBox(height: 24),
 
+        // 【追加】アイコン選択UI
+        const Text('アイコン', style: TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: _iconPalette.map((icon) {
+            bool isSelected = _editIcon == icon;
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _editIcon = icon;
+                });
+                widget.onIconPreview(icon); // プレビューにも通知
+              },
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: isSelected ? _editColor.withOpacity(0.2) : Colors.white.withOpacity(0.05),
+                  shape: BoxShape.circle,
+                  border: isSelected ? Border.all(color: _editColor, width: 2) : null,
+                ),
+                child: Icon(icon, color: isSelected ? _editColor : Colors.white54, size: 20),
+              ),
+            );
+          }).toList(),
+        ),
+
+        const SizedBox(height: 24),
+
         const Text('カラー', style: TextStyle(color: Colors.white54, fontSize: 12)),
         const SizedBox(height: 12),
         Wrap(
@@ -1369,7 +1716,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
           children: [
             Expanded(
               child: InkWell(
-                onTap: () => _selectTime(context, true),
+                onTap: () => _showTimePickerModal(context, true),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1389,7 +1736,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
             ),
             Expanded(
               child: InkWell(
-                onTap: () => _selectTime(context, false),
+                onTap: () => _showTimePickerModal(context, false),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1457,6 +1804,8 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
                       _initControllers(); 
                     });
                     widget.onColorPreview(null);
+                    widget.onIconPreview(null); // 【追加】キャンセル時にアイコンリセット
+                    widget.onTimePreview(null); 
                   }
                 },
                 style: OutlinedButton.styleFrom(
