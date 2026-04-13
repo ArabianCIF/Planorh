@@ -668,7 +668,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     );
   }
 
-  Widget _buildHeader(bool isMobile) {
+ Widget _buildHeader(bool isMobile) {
     return Container(
       width: double.infinity, 
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 20, vertical: 20),
@@ -695,11 +695,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             ],
           ),
           const SizedBox(height: 16),
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 16,
-            runSpacing: 12,
+          // ▼ 変更点: Wrap を Row に変更して、確実に右端まで押し出されるようにしました ▼
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -748,7 +747,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       ),
     );
   }
-
   Widget _buildStatItem(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
