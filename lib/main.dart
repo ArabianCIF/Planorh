@@ -37,6 +37,28 @@ class ScheduleEvent {
   String location;
   String notes;
 
+  // ▼【解決策2のキモ】アイコンの対応表を定義する
+  // ここにアプリで使う可能性があるアイコンをすべて「定数」として並べます。
+  // これにより、コンパイラが「これらは削除しちゃダメだ」と判断してくれます。
+  static const Map<int, IconData> _iconMap = {
+    0xe24d: Icons.event_note,
+    0xe595: Icons.wb_sunny_outlined,
+    0xe4f7: Icons.psychology_outlined,
+    0xe4ef: Icons.people_outline,
+    0xe281: Icons.fitness_center,
+    0xe3f3: Icons.menu_book,
+    0xe1ad: Icons.computer,
+    0xe556: Icons.restaurant,
+    0xf0171: Icons.shopping_cart_outlined,
+    0xe675: Icons.train,
+    0xe10f: Icons.local_cafe_outlined,
+    0xe4e2: Icons.phone_in_talk_outlined,
+    0xe405: Icons.music_note_outlined,
+    0xe402: Icons.movie_creation_outlined,
+    0xe318: Icons.home_outlined,
+    0xe6ee: Icons.work_outline,
+  };
+
   ScheduleEvent({
     required this.id,
     required this.title,
@@ -53,15 +75,9 @@ class ScheduleEvent {
 
   ScheduleEvent clone() {
     return ScheduleEvent(
-      id: id,
-      title: title,
-      icon: icon,
-      color: color,
-      startMin: startMin,
-      endMin: endMin,
-      isPinned: isPinned,
-      location: location,
-      notes: notes,
+      id: id, title: title, icon: icon, color: color,
+      startMin: startMin, endMin: endMin, isPinned: isPinned,
+      location: location, notes: notes,
     );
   }
 
@@ -69,8 +85,8 @@ class ScheduleEvent {
     return {
       'id': id,
       'title': title,
-      'iconCode': icon.codePoint, // IconDataは数値で保存
-      'colorValue': color.value,  // Colorも数値で保存
+      'iconCode': icon.codePoint,
+      'colorValue': color.value,
       'startMin': startMin,
       'endMin': endMin,
       'isPinned': isPinned,
@@ -80,10 +96,13 @@ class ScheduleEvent {
   }
 
   factory ScheduleEvent.fromJson(Map<String, dynamic> json) {
+    // ▼【修正箇所】動的な生成ではなく、対応表から「定数」を取り出すようにする
+    final int code = json['iconCode'];
     return ScheduleEvent(
       id: json['id'],
       title: json['title'],
-      icon: IconData(json['iconCode'], fontFamily: 'MaterialIcons'),
+      // 対応表にコードがあればそれを使う。なければデフォルトのアイコンにする。
+      icon: _iconMap[code] ?? Icons.event_note, 
       color: Color(json['colorValue']),
       startMin: json['startMin'],
       endMin: json['endMin'],
@@ -743,7 +762,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1行目: タイトル、保存ボタン、統計情報
+          // 1行目: タイトルと統計
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -787,61 +806,55 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             ],
           ),
           const SizedBox(height: 16),
-          // 2行目: ズーム操作とヘルプテキスト
+          // 2行目: ズームとヘルプテキスト
           Row(
             children: [
-              // スライダー部分を固定幅、もしくは最小限のサイズにする
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
-                  SizedBox(
-                    width: isMobile ? 100 : 160, // 幅を少しだけタイトに調整
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 2.0, 
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                        activeTickMarkColor: Colors.white54,
-                        inactiveTickMarkColor: Colors.white24,
-                      ),
-                      child: Slider(
-                        value: pixelsPerMinute,
-                        min: 0.75, max: 2.0, divisions: 5, 
-                        activeColor: const Color(0xFF4A89DC),
-                        onChanged: (val) => setState(() => pixelsPerMinute = val),
-                      ),
-                    ),
+              const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
+              // スライダーをExpandedで囲い、残りのスペースを自動計算させる
+              Expanded(
+                flex: 2, // テキストとの比率調整
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 2.0, 
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                    activeTickMarkColor: Colors.white54,
+                    inactiveTickMarkColor: Colors.white24,
                   ),
-                  const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
-                  if (!isMobile) ...[
-                    const SizedBox(width: 8),
-                    Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                  ]
-                ],
+                  child: Slider(
+                    value: pixelsPerMinute,
+                    min: 0.75, max: 2.0, divisions: 5, 
+                    activeColor: const Color(0xFF4A89DC),
+                    onChanged: (val) => setState(() => pixelsPerMinute = val),
+                  ),
+                ),
               ),
+              const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
               
-              // 【今回の重要修正】
-              // 操作説明をExpandedで囲うことで、詳細パネルが開いて幅が狭まっても
-              // エラーを出さずに、入り切らない分を「...」にする
-              if (!isMobile)
+              if (!isMobile) ...[
+                const SizedBox(width: 8),
+                Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                // ヘルプテキストもExpandedで包んで、入りきらなければ「...」にする
                 Expanded(
+                  flex: 3,
                   child: Padding(
                     padding: const EdgeInsets.only(left: 16),
                     child: Text(
-                      '空白ドラッグ: 時間を指定して追加  |  ブロックタップ: 詳細', 
+                      '空白ドラッグ: 追加 | タップ: 詳細', 
                       textAlign: TextAlign.right,
                       style: const TextStyle(color: Colors.white54, fontSize: 11),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis, // ここでオーバーフローを吸収
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
+              ],
             ],
           )
         ],
       ),
     );
   }
+  
   Widget _buildStatItem(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
