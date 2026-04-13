@@ -842,7 +842,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       ),
     );
   }
-   // ▼ 変更: ヘッダーに保存ボタンを実装
   Widget _buildStatItem(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
