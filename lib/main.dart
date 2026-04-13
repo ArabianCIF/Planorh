@@ -211,6 +211,35 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     });
   }
 
+  // 全予定をリセットする関数
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2024),
+        title: const Text('スケジュールのリセット', style: TextStyle(color: Colors.white)),
+        content: const Text('すべての予定を削除して白紙に戻しますか？', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                events.clear();
+                selectedEvent = null;
+              });
+              _saveEvents(); // ストレージも更新
+              Navigator.pop(context);
+            },
+            child: const Text('リセット', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _onPointerDown(PointerDownEvent details, ScheduleEvent event) {
     final now = DateTime.now();
     if (lastTapTime != null && 
@@ -779,6 +808,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   GestureDetector(
+                    onTap: _showResetConfirmation,
+                    child: const Icon(Icons.delete_sweep_outlined, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                  GestureDetector(
                     onTap: () async {
                       if (_isSaved) return;
                       setState(() => _isSaved = true);
@@ -870,7 +904,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Widget _buildEventBlock(ScheduleEvent event) {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
-    bool isDeleting = deletingEventId == event.id; 
+    bool isDeleting = deletingEventId == event.id;
 
     Color displayColor = (isSelected && previewColor != null) ? previewColor! : event.color;
     IconData displayIcon = (isSelected && previewIcon != null) ? previewIcon! : event.icon; 
@@ -892,36 +926,54 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       height: blockHeight,
       left: 70,
       right: 30, 
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.0, end: isDeleting ? 0.0 : 1.0),
-        duration: const Duration(milliseconds: 350),
-        curve: isDeleting ? Curves.easeInBack : Curves.easeOutBack, 
-        builder: (context, value, child) {
-          return Transform.scale(
-            scale: value,
-            child: Opacity(
-              opacity: value.clamp(0.0, 1.0),
-              child: child,
-            ),
-          );
+      child: Dismissible(
+        key: Key('dismiss_${event.id}'),
+        direction: DismissDirection.startToEnd,
+        background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 20.0),
+          decoration: BoxDecoration(
+            color: Colors.redAccent.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+        ),
+        // 即座にStateを更新してウィジェットを消し去る（エラー回避）
+        onDismissed: (direction) {
+          final target = events.firstWhere((e) => e.id == event.id);
+          _addToHistory(target.title, target.location, target.notes);
+          
+          setState(() {
+            events.removeWhere((e) => e.id == event.id);
+            if (selectedEvent?.id == event.id) selectedEvent = null;
+          });
+          _saveEvents();
         },
-        child: Listener(
-          onPointerDown: (details) => _onPointerDown(details, event),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 150),
-            opacity: isDragging ? 0.7 : 1.0,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Container(
-                    clipBehavior: Clip.hardEdge, 
-                    decoration: BoxDecoration(
-                      color: displayColor.withOpacity(0.15), 
-                      border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SingleChildScrollView(
-                      physics: const NeverScrollableScrollPhysics(), 
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: isDeleting ? 0.0 : 1.0),
+          duration: const Duration(milliseconds: 350),
+          curve: isDeleting ? Curves.easeInBack : Curves.easeOutBack, 
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: value,
+              child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
+            );
+          },
+          child: Listener(
+            onPointerDown: (details) => _onPointerDown(details, event),
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 150),
+              opacity: isDragging ? 0.7 : 1.0,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Container(
+                      clipBehavior: Clip.hardEdge, 
+                      decoration: BoxDecoration(
+                        color: displayColor.withOpacity(0.15), 
+                        border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         child: Column(
@@ -931,353 +983,136 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                               children: [
                                 Icon(displayIcon, color: Colors.white, size: 20), 
                                 const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    event.title, 
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
-                                    maxLines: 1, 
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                const SizedBox(width: 24), 
+                                Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                             if (blockHeight > 45) ...[
                               const SizedBox(height: 4),
-                              Text(
-                                '${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', 
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
                             ]
                           ],
                         ),
                       ),
                     ),
                   ),
-                ),
 
-                Positioned(
-                  top: centerMargin, bottom: centerMargin, left: 0, right: 0,
-                  child: GestureDetector(
-                    onTap: () {
-                      if (isDoubleClickMode) {
-                        return;
-                      }
-                      _singleTapTimer?.cancel();
-                      _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
-                        if (mounted && !isDoubleClickMode && draggingId == null) {
-                          setState(() {
-                            if (selectedEvent?.id == event.id) {
-                              if (_isCreatingNew) {
-                                _cancelNewEvent();
+                  // 【重要：修正】onVerticalDrag に変更して横方向を Dismissible に明け渡す
+                  Positioned(
+                    top: centerMargin, bottom: centerMargin, left: 0, right: 0,
+                    child: GestureDetector(
+                      onTap: () {
+                        if (isDoubleClickMode) return;
+                        _singleTapTimer?.cancel();
+                        _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
+                          if (mounted && !isDoubleClickMode && draggingId == null) {
+                            setState(() {
+                              if (selectedEvent?.id == event.id) {
+                                selectedEvent = (_isCreatingNew) ? null : null; // Close
                               } else {
-                                selectedEvent = null;
+                                selectedEvent = event;
                               }
-                            } else {
-                              if (_isCreatingNew) {
-                                _cancelNewEvent();
-                              }
-                              selectedEvent = event;
-                            }
-                            previewColor = null; 
-                            previewIcon = null; 
-                            previewStartMin = null;
-                            previewEndMin = null;
-                          });
-                        }
-                      });
-                    },
-                    onPanStart: (details) {
-                      setState(() {
-                        if (_isCreatingNew && selectedEvent?.id != event.id) {
-                           _cancelNewEvent();
-                        }
-                        draggingId = event.id;
-                        dragStartGlobalY = details.globalPosition.dy;
-                        preDragState = { for (var e in events) e.id: e.clone() };
-                        previewStartMin = null;
-                        previewEndMin = null;
-                      });
-                    },
-                    onPanUpdate: (details) {
-                      setState(() {
-                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-
-                        if (isDoubleClickMode) {
-                          int newStart = _snap(preDragState[event.id]!.startMin + totalDelta);
-                          int dur = preDragState[event.id]!.duration;
-                          
-                          if (newStart < 0) newStart = 0;
-                          if (newStart + dur > 1440) newStart = 1440 - dur;
-
-                          int snapThreshold = 15; 
-                          int bestSnapStart = newStart;
-                          int minDiff = snapThreshold + 1;
-
-                          for (var other in events) {
-                            if (other.id == event.id) continue;
-                            int diffToEnd = (newStart - other.endMin).abs();
-                            if (diffToEnd < minDiff) {
-                              minDiff = diffToEnd;
-                              bestSnapStart = other.endMin;
-                            }
-                            int diffToStart = ((newStart + dur) - other.startMin).abs();
-                            if (diffToStart < minDiff) {
-                              minDiff = diffToStart;
-                              bestSnapStart = other.startMin - dur;
-                            }
+                            });
                           }
-
-                          if (bestSnapStart < 0) bestSnapStart = 0;
-                          if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
-
-                          event.startMin = bestSnapStart;
-                          event.endMin = bestSnapStart + dur;
-
-                        } else {
-                          for (int i = 0; i < events.length; i++) {
-                            events[i].startMin = preDragState[events[i].id]!.startMin;
-                            events[i].endMin = preDragState[events[i].id]!.endMin;
-                          }
-                          events.sort((a, b) => a.startMin.compareTo(b.startMin));
-
+                        });
+                      },
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          draggingId = event.id;
+                          dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
                           int dragIndex = events.indexWhere((e) => e.id == draggingId);
                           if (dragIndex == -1) return;
-
+                          
                           ScheduleEvent dragged = events[dragIndex];
-                          ScheduleEvent preDrag = preDragState[dragged.id]!;
+                          int dur = preDragState[dragged.id]!.duration;
+                          int newStart = _snap(preDragState[dragged.id]!.startMin + totalDelta);
                           
-                          int newStart = _snap(preDrag.startMin + totalDelta);
-                          int dur = preDrag.duration;
+                          if (isDoubleClickMode) {
+                            event.startMin = newStart.clamp(0, 1440 - dur);
+                            event.endMin = event.startMin + dur;
+                          } else {
+                            int minAllowed = _getFloor(dragIndex);
+                            int maxAllowed = _getCeil(dragIndex) - dur;
+                            dragged.startMin = newStart.clamp(minAllowed, maxAllowed);
+                            dragged.endMin = dragged.startMin + dur;
+                            _pushUpwards(dragIndex);
+                            _pushDownwards(dragIndex);
+                          }
+                        });
+                      },
+                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
+                      child: Container(color: Colors.transparent),
+                    ),
+                  ),
 
-                          int minAllowed = _getFloor(dragIndex);
-                          int maxAllowed = _getCeil(dragIndex) - dur;
-
-                          if (newStart < minAllowed) newStart = minAllowed;
-                          if (newStart > maxAllowed) newStart = maxAllowed;
-
-                          dragged.startMin = newStart;
-                          dragged.endMin = newStart + dur;
-
+                  // 【重要：修正】上端ハンドルも VerticalDrag に
+                  Positioned(
+                    top: handleOffset, left: 0, right: 0, height: handleHeight,
+                    child: GestureDetector(
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          draggingId = event.id;
+                          dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        if (isDoubleClickMode) return; 
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+                          int newStart = _snap(preDragState[events[dragIndex].id]!.startMin + totalDelta);
+                          events[dragIndex].startMin = newStart.clamp(_getFloor(dragIndex), preDragState[events[dragIndex].id]!.endMin - globalMinDuration);
                           _pushUpwards(dragIndex);
+                        });
+                      },
+                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
+                      child: Container(color: Colors.transparent, alignment: Alignment.topCenter, padding: const EdgeInsets.only(top: 6), child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
+                    ),
+                  ),
+
+                  // 【重要：修正】下端ハンドルも VerticalDrag に
+                  Positioned(
+                    bottom: handleOffset, left: 0, right: 0, height: handleHeight,
+                    child: GestureDetector(
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          draggingId = event.id;
+                          dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        if (isDoubleClickMode) return; 
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+                          int newEnd = _snap(preDragState[events[dragIndex].id]!.endMin + totalDelta);
+                          events[dragIndex].endMin = newEnd.clamp(preDragState[events[dragIndex].id]!.startMin + globalMinDuration, _getCeil(dragIndex));
                           _pushDownwards(dragIndex);
-                        }
-                      });
-                    },
-                    onPanEnd: (_) {
-                      setState(() {
-                        if (isDoubleClickMode) {
-                          List<List<int>> freeGaps = [];
-                          int currentMax = 0;
-                          
-                          final others = events.where((e) => e.id != event.id).toList()
-                            ..sort((a, b) => a.startMin.compareTo(b.startMin));
-
-                          for (var o in others) {
-                            if (o.startMin > currentMax) {
-                              freeGaps.add([currentMax, o.startMin]);
-                            }
-                            if (o.endMin > currentMax) {
-                              currentMax = o.endMin;
-                            }
-                          }
-                          if (1440 > currentMax) {
-                            freeGaps.add([currentMax, 1440]);
-                          }
-
-                          double dropCenter = event.startMin + event.duration / 2;
-                          List<int>? targetGap;
-
-                          for (var gap in freeGaps) {
-                            if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
-                              targetGap = gap;
-                              break;
-                            }
-                          }
-
-                          if (targetGap == null) {
-                            int maxOverlap = 0;
-                            for (var gap in freeGaps) {
-                              int overlapStart = max(gap[0], event.startMin);
-                              int overlapEnd = min(gap[1], event.endMin);
-                              int overlap = max(0, overlapEnd - overlapStart);
-                              if (overlap > maxOverlap) {
-                                maxOverlap = overlap;
-                                targetGap = gap;
-                              }
-                            }
-                          }
-
-                          bool fitSuccess = false;
-                          if (targetGap != null) {
-                            int gStart = targetGap[0];
-                            int gEnd = targetGap[1];
-                            int gDur = gEnd - gStart;
-
-                            if (gDur >= globalMinDuration) {
-                              int origDur = preDragState[event.id]!.duration;
-                              int proposedStart = event.startMin;
-                              if (proposedStart < gStart) proposedStart = gStart;
-                              
-                              int proposedEnd = proposedStart + origDur;
-                              if (proposedEnd > gEnd) {
-                                 proposedEnd = gEnd;
-                                 proposedStart = max(gStart, proposedEnd - origDur);
-                                 if (proposedEnd - proposedStart < globalMinDuration) {
-                                     proposedStart = proposedEnd - globalMinDuration;
-                                 }
-                              }
-                              
-                              event.startMin = proposedStart;
-                              event.endMin = proposedEnd;
-                              fitSuccess = true;
-                            }
-                          }
-
-                          if (!fitSuccess) {
-                            event.startMin = preDragState[event.id]!.startMin;
-                            event.endMin = preDragState[event.id]!.endMin;
-                          }
-                        }
-                        
-                        draggingId = null;
-                        preDragState.clear();
-                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                      });
-                    },
-                    onPanCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
-                    child: Container(color: Colors.transparent),
-                  ),
-                ),
-
-                Positioned(
-                  top: handleOffset, left: 0, right: 0, height: handleHeight,
-                  child: GestureDetector(
-                    onPanStart: (details) {
-                      setState(() {
-                        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-                        draggingId = event.id;
-                        dragStartGlobalY = details.globalPosition.dy;
-                        preDragState = { for (var e in events) e.id: e.clone() };
-                        previewStartMin = null;
-                        previewEndMin = null;
-                      });
-                    },
-                    onPanUpdate: (details) {
-                      if (isDoubleClickMode) return; 
-                      
-                      setState(() {
-                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                        
-                        for (int i = 0; i < events.length; i++) {
-                          events[i].startMin = preDragState[events[i].id]!.startMin;
-                          events[i].endMin = preDragState[events[i].id]!.endMin;
-                        }
-                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                        
-                        int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                        if (dragIndex == -1) return;
-                        ScheduleEvent dragged = events[dragIndex];
-                        ScheduleEvent preDrag = preDragState[dragged.id]!;
-                        
-                        int newStart = _snap(preDrag.startMin + totalDelta);
-                        
-                        int minAllowed = _getFloor(dragIndex);
-                        int maxAllowed = preDrag.endMin - globalMinDuration;
-
-                        if (newStart < minAllowed) newStart = minAllowed;
-                        if (newStart > maxAllowed) newStart = maxAllowed;
-
-                        dragged.startMin = newStart;
-                        _pushUpwards(dragIndex);
-                      });
-                    },
-                    onPanEnd: (_) => setState(() => draggingId = null),
-                    onPanCancel: () => setState(() => draggingId = null),
-                    child: Container(
-                      color: Colors.transparent,
-                      alignment: Alignment.topCenter,
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), 
+                        });
+                      },
+                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
+                      child: Container(color: Colors.transparent, alignment: Alignment.bottomCenter, padding: const EdgeInsets.only(bottom: 6), child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
                     ),
                   ),
-                ),
 
-                Positioned(
-                  bottom: handleOffset, left: 0, right: 0, height: handleHeight,
-                  child: GestureDetector(
-                    onPanStart: (details) {
-                      setState(() {
-                        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-                        draggingId = event.id;
-                        dragStartGlobalY = details.globalPosition.dy;
-                        preDragState = { for (var e in events) e.id: e.clone() };
-                        previewStartMin = null;
-                        previewEndMin = null;
-                      });
-                    },
-                    onPanUpdate: (details) {
-                      if (isDoubleClickMode) return; 
-                      
-                      setState(() {
-                        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                        
-                        for (int i = 0; i < events.length; i++) {
-                          events[i].startMin = preDragState[events[i].id]!.startMin;
-                          events[i].endMin = preDragState[events[i].id]!.endMin;
-                        }
-                        events.sort((a, b) => a.startMin.compareTo(b.startMin));
-                        
-                        int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                        if (dragIndex == -1) return;
-                        ScheduleEvent dragged = events[dragIndex];
-                        ScheduleEvent preDrag = preDragState[dragged.id]!;
-                        
-                        int newEnd = _snap(preDrag.endMin + totalDelta);
-                        
-                        int maxAllowed = _getCeil(dragIndex);
-                        int minAllowed = preDrag.startMin + globalMinDuration;
-
-                        if (newEnd > maxAllowed) newEnd = maxAllowed;
-                        if (newEnd < minAllowed) newEnd = minAllowed;
-
-                        dragged.endMin = newEnd;
-                        _pushDownwards(dragIndex);
-                      });
-                    },
-                    onPanEnd: (_) => setState(() => draggingId = null),
-                    onPanCancel: () => setState(() => draggingId = null),
-                    child: Container(
-                      color: Colors.transparent,
-                      alignment: Alignment.bottomCenter,
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle)), 
+                  Positioned(
+                    top: 4, right: 6,
+                    child: GestureDetector(
+                      onTap: () => setState(() => event.isPinned = !event.isPinned),
+                      child: Container(padding: const EdgeInsets.all(6), child: Icon(event.isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: event.isPinned ? Colors.white : Colors.white54, size: 20)),
                     ),
                   ),
-                ),
-
-                Positioned(
-                  top: 4, right: 6,
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        event.isPinned = !event.isPinned;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      color: Colors.transparent, 
-                      child: Icon(
-                        event.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                        color: event.isPinned ? Colors.white : Colors.white54,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
