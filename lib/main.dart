@@ -115,7 +115,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   int _snap(int minutes) => (minutes / snapInterval).round() * snapInterval;
 
-  double get busyHours => events.fold(0, (sum, event) => sum + event.duration) / 60.0;
+  double get busyHours => events.fold<int>(0, (sum, event) => sum + event.duration) / 60.0;
   double get freeHours => 24.0 - busyHours;
 
   void _addToHistory(String title, String location, String notes) {
@@ -449,11 +449,14 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                             onTapUp: (details) {
                                               if (selectedEvent != null) {
                                                 setState(() {
-                                                  if (_isCreatingNew) _cancelNewEvent(); 
-                                                  else selectedEvent = null;
-                                                  previewColor = null; 
-                                                  previewIcon = null; 
-                                                  previewStartMin = null; 
+                                                  if (_isCreatingNew) {
+                                                    _cancelNewEvent();
+                                                  } else {
+                                                    selectedEvent = null;
+                                                  }
+                                                  previewColor = null;
+                                                  previewIcon = null;
+                                                  previewStartMin = null;
                                                   previewEndMin = null;
                                                 });
                                                 return;
@@ -463,17 +466,23 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                               tappedMin = (tappedMin / 10).round() * 10;
 
                                               bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
-                                              if (isOverlapping) return;
+                                              if (isOverlapping) {
+                                                return;
+                                              }
 
                                               _showTemplateMenu(context, tappedMin);
                                             },
                                             onVerticalDragStart: (details) {
-                                              if (selectedEvent != null) return;
+                                              if (selectedEvent != null) {
+                                                return;
+                                              }
                                               int minTime = (details.localPosition.dy / pixelsPerMinute).round();
                                               minTime = (minTime / 10).round() * 10;
                                               
                                               bool isOverlapping = events.any((e) => minTime >= e.startMin && minTime < e.endMin);
-                                              if (isOverlapping) return;
+                                              if (isOverlapping) {
+                                                return;
+                                              }
 
                                               setState(() {
                                                 dragCreateStartMin = minTime;
@@ -854,16 +863,23 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   top: centerMargin, bottom: centerMargin, left: 0, right: 0,
                   child: GestureDetector(
                     onTap: () {
-                      if (isDoubleClickMode) return;
+                      if (isDoubleClickMode) {
+                        return;
+                      }
                       _singleTapTimer?.cancel();
                       _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
                         if (mounted && !isDoubleClickMode && draggingId == null) {
                           setState(() {
                             if (selectedEvent?.id == event.id) {
-                              if (_isCreatingNew) _cancelNewEvent();
-                              else selectedEvent = null;
+                              if (_isCreatingNew) {
+                                _cancelNewEvent();
+                              } else {
+                                selectedEvent = null;
+                              }
                             } else {
-                              if (_isCreatingNew) _cancelNewEvent();
+                              if (_isCreatingNew) {
+                                _cancelNewEvent();
+                              }
                               selectedEvent = event;
                             }
                             previewColor = null; 
