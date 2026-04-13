@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'dart:math';
 import 'dart:async';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const ScheduleApp());
@@ -62,6 +64,34 @@ class ScheduleEvent {
       notes: notes,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'iconCode': icon.codePoint, // IconDataは数値で保存
+      'colorValue': color.value,  // Colorも数値で保存
+      'startMin': startMin,
+      'endMin': endMin,
+      'isPinned': isPinned,
+      'location': location,
+      'notes': notes,
+    };
+  }
+
+  factory ScheduleEvent.fromJson(Map<String, dynamic> json) {
+    return ScheduleEvent(
+      id: json['id'],
+      title: json['title'],
+      icon: IconData(json['iconCode'], fontFamily: 'MaterialIcons'),
+      color: Color(json['colorValue']),
+      startMin: json['startMin'],
+      endMin: json['endMin'],
+      isPinned: json['isPinned'] ?? false,
+      location: json['location'] ?? '未設定',
+      notes: json['notes'] ?? '',
+    );
+  }
 }
 
 class InteractiveSchedule extends StatefulWidget {
@@ -100,6 +130,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Map<String, ScheduleEvent> preDragState = {};
   double dragStartGlobalY = 0.0;
 
+  // ▼ 追加: 保存アニメーション用の状態フラグ
+  bool _isSaved = false;
+
+  // 初期データ（モック）。初回起動時やデータがない場合に使用されます。
   List<ScheduleEvent> events = [
     ScheduleEvent(id: '1', title: 'Morning Task (朝食)', icon: Icons.wb_sunny_outlined, color: const Color(0xFF4A89DC), startMin: 480, endMin: 600, location: '自宅 ダイニング', notes: '今日のタスク整理とメールチェックを済ませる。ゆっくりコーヒーを飲む。'),
     ScheduleEvent(id: '2', title: 'Deep Work (勉強)', icon: Icons.psychology_outlined, color: const Color(0xFF8CC152), startMin: 660, endMin: 780, location: '駅前のカフェ', notes: 'FlutterのUI実装と状態管理の復習。参考書の第3章を終わらせる。'),
@@ -112,6 +146,33 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     ScheduleEvent(id: 'tpl_3', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90),
     ScheduleEvent(id: 'tpl_4', title: '食事', icon: Icons.restaurant, color: const Color(0xFFFFCE54), startMin: 0, endMin: 60),
   ];
+
+  // ▼ 追加: 画面の初期化時にローカルストレージからデータを読み込む
+  @override
+  void initState() {
+    super.initState();
+    _loadEvents();
+  }
+
+  // ▼ 追加: データ読み込みロジック
+  Future<void> _loadEvents() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? eventsJson = prefs.getString('schedule_events');
+    
+    if (eventsJson != null) {
+      final List<dynamic> decoded = jsonDecode(eventsJson);
+      setState(() {
+        events = decoded.map((e) => ScheduleEvent.fromJson(e)).toList();
+      });
+    }
+  }
+
+  // ▼ 追加: データ保存ロジック
+  Future<void> _saveEvents() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encoded = jsonEncode(events.map((e) => e.toJson()).toList());
+    await prefs.setString('schedule_events', encoded);
+  }
 
   int _snap(int minutes) => (minutes / snapInterval).round() * snapInterval;
 
@@ -249,14 +310,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     });
   }
 
-  // 【変更】キャンセル時にも削除アニメーションを適用する
   void _cancelNewEvent() {
     if (selectedEvent == null) return;
     final String targetId = selectedEvent!.id;
 
     setState(() {
-      deletingEventId = targetId; // 削除アニメーションのターゲットに設定
-      selectedEvent = null;       // パネルはすぐに閉じる
+      deletingEventId = targetId;
+      selectedEvent = null;       
       _isCreatingNew = false;
       previewColor = null; 
       previewIcon = null; 
@@ -264,7 +324,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       previewEndMin = null;   
     });
 
-    // アニメーション完了後にリストから完全に破棄
     Future.delayed(const Duration(milliseconds: 350), () {
       if (mounted) {
         setState(() {
@@ -676,8 +735,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       ),
     );
   }
-
- Widget _buildHeader(bool isMobile) {
+  Widget _buildHeader(bool isMobile) {
     return Container(
       width: double.infinity, 
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 20, vertical: 20),
@@ -685,70 +743,98 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1行目: タイトル、保存ボタン、統計情報
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                'Planorh', 
-                style: TextStyle(fontSize: isMobile ? 26 : 35, fontWeight: FontWeight.bold, color: Colors.white),
+              Flexible(
+                child: Text(
+                  'Planorh', 
+                  style: TextStyle(fontSize: isMobile ? 26 : 35, fontWeight: FontWeight.bold, color: Colors.white),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+              const SizedBox(width: 8),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  GestureDetector(
+                    onTap: () async {
+                      if (_isSaved) return;
+                      setState(() => _isSaved = true);
+                      await _saveEvents();
+                      Future.delayed(const Duration(seconds: 2), () {
+                        if (mounted) setState(() => _isSaved = false);
+                      });
+                    },
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: Icon(
+                        _isSaved ? Icons.bookmark : Icons.bookmark_border,
+                        key: ValueKey<bool>(_isSaved),
+                        color: Colors.white,
+                        size: isMobile ? 24 : 28,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: isMobile ? 12 : 24),
                   _buildStatItem('BUSY TIME', '${busyHours.toStringAsFixed(1)} hrs'),
-                  const SizedBox(width: 16),
+                  SizedBox(width: isMobile ? 8 : 16),
                   _buildStatItem('FREE time', '${freeHours.toStringAsFixed(1)} hrs'),
                 ],
               )
             ],
           ),
           const SizedBox(height: 16),
-          // ▼ 変更点: Wrap を Row に変更して、確実に右端まで押し出されるようにしました ▼
+          // 2行目: ズーム操作とヘルプテキスト
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // スライダー部分を固定幅、もしくは最小限のサイズにする
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
                   SizedBox(
-                    width: isMobile ? 120 : 200, 
+                    width: isMobile ? 100 : 160, // 幅を少しだけタイトに調整
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
                         trackHeight: 2.0, 
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0), 
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0), 
-                        tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2.0), 
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
                         activeTickMarkColor: Colors.white54,
                         inactiveTickMarkColor: Colors.white24,
                       ),
                       child: Slider(
                         value: pixelsPerMinute,
-                        min: 0.75, 
-                        max: 2.0,  
-                        divisions: 5, 
+                        min: 0.75, max: 2.0, divisions: 5, 
                         activeColor: const Color(0xFF4A89DC),
-                        inactiveColor: Colors.white24,
-                        onChanged: (val) {
-                          setState(() {
-                            pixelsPerMinute = val;
-                          });
-                        },
+                        onChanged: (val) => setState(() => pixelsPerMinute = val),
                       ),
                     ),
                   ),
                   const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
                   if (!isMobile) ...[
                     const SizedBox(width: 8),
-                    Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                    Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 11)),
                   ]
                 ],
               ),
+              
+              // 【今回の重要修正】
+              // 操作説明をExpandedで囲うことで、詳細パネルが開いて幅が狭まっても
+              // エラーを出さずに、入り切らない分を「...」にする
               if (!isMobile)
-                const Text('空白ドラッグ: 時間を指定して追加  |  ブロックタップ: 詳細', 
-                  style: TextStyle(color: Colors.white54, fontSize: 11)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16),
+                    child: Text(
+                      '空白ドラッグ: 時間を指定して追加  |  ブロックタップ: 詳細', 
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis, // ここでオーバーフローを吸収
+                    ),
+                  ),
                 ),
             ],
           )
@@ -756,6 +842,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       ),
     );
   }
+   // ▼ 変更: ヘッダーに保存ボタンを実装
   Widget _buildStatItem(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1067,7 +1154,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       });
                     },
                     onPanUpdate: (details) {
-                      if (isDoubleClickMode) return;
+                      if (isDoubleClickMode) return; 
                       
                       setState(() {
                         int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
@@ -1192,7 +1279,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 }
-
 class CustomTimePicker extends StatefulWidget {
   final int value;
   final int minMinute;
