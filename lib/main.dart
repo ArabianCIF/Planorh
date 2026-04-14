@@ -121,6 +121,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   final int snapInterval = 10; 
   double pixelsPerMinute = 1.0; 
   final int globalMinDuration = 10; 
+  
 
   String? draggingId;
   bool isDoubleClickMode = false;
@@ -129,15 +130,19 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   
   List<Map<String, String>> eventHistory = [];
 
+  
+
   Color? previewColor;
   IconData? previewIcon; 
   int? previewStartMin;
   int? previewEndMin;
+  
 
   String? deletingEventId; 
 
   int? dragCreateStartMin;
   int? dragCreateCurrentMin;
+  int? _pendingAddMin;
 
   DateTime? lastTapTime;
   String? lastTapEventId;
@@ -389,10 +394,50 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                   const SizedBox(height: 16),
                   ListTile(
                     leading: const Icon(Icons.add, color: Colors.white),
-                    title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
+                    title: const Text('新規作成（白紙から）', style: TextStyle(color: Colors.white)),
                     onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                   ),
-                  const Divider(color: Colors.white10, height: 32),
+                  const Divider(color: Colors.white10, height: 24),
+
+                  // 【追加】履歴セクション
+                  if (eventHistory.isNotEmpty) ...[
+                    const Text('最近の予定から追加', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8, runSpacing: 8,
+                      children: eventHistory.map((hist) {
+                        return ActionChip(
+                          backgroundColor: Colors.white.withOpacity(0.05),
+                          label: Text(hist['title'] ?? '', style: const TextStyle(color: Colors.white70)),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            // 履歴の情報を使って新規イベントを作成（色はデフォルト）
+                            var newEvent = ScheduleEvent(
+                              id: 'new_${DateTime.now().millisecondsSinceEpoch}',
+                              title: hist['title'] ?? '新規予定',
+                              icon: Icons.event_note, // 履歴にアイコン情報がないためデフォルト
+                              color: const Color(0xFF967ADC), 
+                              startMin: tappedMin, 
+                              endMin: tappedMin + 60, // デフォルトで60分
+                              location: hist['location'] ?? '',
+                              notes: hist['notes'] ?? '',
+                            );
+                            setState(() {
+                              events.add(newEvent);
+                              events.sort((a, b) => a.startMin.compareTo(b.startMin));
+                              selectedEvent = newEvent;
+                              _isCreatingNew = true; // 編集モードで開く
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const Divider(color: Colors.white10, height: 32),
+                  ],
+
+                  // テンプレートセクション
+                  const Text('テンプレート', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  const SizedBox(height: 12),
                   Wrap(
                     spacing: 12, runSpacing: 12,
                     children: templates.map((tpl) => ActionChip(
