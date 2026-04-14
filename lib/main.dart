@@ -706,7 +706,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     );
   }
 
-  Widget _buildEventBlock(ScheduleEvent event) {
+ Widget _buildEventBlock(ScheduleEvent event) {
     bool isDragging = draggingId == event.id;
     bool isSelected = selectedEvent?.id == event.id;
     bool isDeleting = deletingEventId == event.id;
@@ -722,8 +722,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     double centerMargin = blockHeight > 30 ? 15.0 : 0.0;
     double handleHeight = blockHeight < 30 ? 24.0 : 30.0;
     double handleOffset = blockHeight < 30 ? -16.0 : -10.0;
-    
-    // 【修正】高さに応じてパディングを動的に調整
     double verticalPadding = blockHeight < 40 ? 4.0 : 8.0;
 
     return AnimatedPositioned(
@@ -765,8 +763,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 children: [
                   Positioned.fill(
                     child: Container(
-                      // 【重要】Clip.antiAliasではみ出た見た目をカット
-                      clipBehavior: Clip.antiAlias, 
+                      clipBehavior: Clip.antiAlias, // 縞々警告カット
                       decoration: BoxDecoration(
                         color: displayColor.withOpacity(0.15), 
                         border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
@@ -774,13 +771,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ),
                       child: Padding(
                         padding: EdgeInsets.symmetric(horizontal: 12, vertical: verticalPadding),
-                        // ↓【修正】ここを SingleChildScrollView で包んでエラーを無効化
-                        child: SingleChildScrollView(
-                          physics: const NeverScrollableScrollPhysics(), // スクロールはさせない
+                        child: SingleChildScrollView( // 1pxオーバーフロー対策
+                          physics: const NeverScrollableScrollPhysics(),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // 25px以下の超薄型ブロックではタイトルも隠す
                               if (blockHeight > 25)
                                 Row(
                                   children: [
@@ -789,7 +784,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                     Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
                                   ],
                                 ),
-                              // 50px以下のブロックでは時間表示を隠してエラー回避
                               if (blockHeight > 50) ...[
                                 const SizedBox(height: 4),
                                 Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -801,232 +795,158 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     ),
                   ),
 
-                  // 中央：移動ハンドル（5分刻みスナップ）
-// ① 中央：移動・スワップ判定
-Positioned(
-  top: centerMargin, bottom: centerMargin, left: 0, right: 0,
-  child: GestureDetector(
-    onTap: () {
-      if (isDoubleClickMode) return;
-      _singleTapTimer?.cancel();
-      _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
-        if (mounted && !isDoubleClickMode && draggingId == null) {
-          setState(() {
-            if (selectedEvent?.id == event.id) {
-              if (_isCreatingNew) _cancelNewEvent();
-              else selectedEvent = null;
-            } else {
-              if (_isCreatingNew) _cancelNewEvent();
-              selectedEvent = event;
-            }
-            previewColor = null; previewIcon = null;
-            previewStartMin = null; previewEndMin = null;
-          });
-        }
-      });
-    },
-    onVerticalDragStart: (details) {
-      setState(() {
-        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-        draggingId = event.id;
-        dragStartGlobalY = details.globalPosition.dy;
-        preDragState = { for (var e in events) e.id: e.clone() };
-        previewStartMin = null; previewEndMin = null;
-      });
-    },
-    onVerticalDragUpdate: (details) {
-      setState(() {
-        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-        int dragIndex = events.indexWhere((e) => e.id == draggingId);
-        if (dragIndex == -1) return;
-        ScheduleEvent dragged = events[dragIndex];
-        int dur = preDragState[dragged.id]!.duration;
-        int newStart = _snap(preDragState[dragged.id]!.startMin + totalDelta);
+                  // 中央ハンドル（移動・スワップ）
+                  Positioned(
+                    top: centerMargin, bottom: centerMargin, left: 0, right: 0,
+                    child: GestureDetector(
+                      onTap: () {
+                        if (isDoubleClickMode) return;
+                        _singleTapTimer?.cancel();
+                        _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
+                          if (mounted && !isDoubleClickMode && draggingId == null) {
+                            setState(() {
+                              if (selectedEvent?.id == event.id) selectedEvent = null;
+                              else selectedEvent = event;
+                            });
+                          }
+                        });
+                      },
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+                          draggingId = event.id;
+                          dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+                          ScheduleEvent dragged = events[dragIndex];
+                          int dur = preDragState[dragged.id]!.duration;
+                          int newStart = _snap(preDragState[dragged.id]!.startMin + totalDelta);
+                          
+                          if (isDoubleClickMode) {
+                            // すり抜けモード
+                            dragged.startMin = newStart.clamp(0, 1440 - dur);
+                            dragged.endMin = dragged.startMin + dur;
+                          } else {
+                            // 押し出しモード
+                            dragged.startMin = newStart.clamp(_getFloor(dragIndex), _getCeil(dragIndex) - dur);
+                            dragged.endMin = dragged.startMin + dur;
+                            _pushUpwards(dragIndex); _pushDownwards(dragIndex);
+                          }
+                        });
+                      },
+                      onVerticalDragEnd: (details) {
+                        setState(() {
+                          if (isDoubleClickMode) {
+                            // 【復活】ドロップ時の隙間計算と自動リサイズ（削り）ロジック
+                            List<List<int>> freeGaps = [];
+                            int currentMax = 0;
+                            final others = events.where((e) => e.id != event.id).toList()
+                              ..sort((a, b) => a.startMin.compareTo(b.startMin));
 
-        if (isDoubleClickMode) {
-          if (newStart < 0) newStart = 0;
-          if (newStart + dur > 1440) newStart = 1440 - dur;
-          int snapThreshold = 15;
-          int bestSnapStart = newStart;
-          int minDiff = snapThreshold + 1;
-          for (var other in events) {
-            if (other.id == event.id) continue;
-            int diffToEnd = (newStart - other.endMin).abs();
-            if (diffToEnd < minDiff) {
-              minDiff = diffToEnd;
-              bestSnapStart = other.endMin;
-            }
-            int diffToStart = ((newStart + dur) - other.startMin).abs();
-            if (diffToStart < minDiff) {
-              minDiff = diffToStart;
-              bestSnapStart = other.startMin - dur;
-            }
-          }
-          if (bestSnapStart < 0) bestSnapStart = 0;
-          if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
-          dragged.startMin = bestSnapStart;
-          dragged.endMin = bestSnapStart + dur;
-        } else {
-          int minAllowed = _getFloor(dragIndex);
-          int maxAllowed = _getCeil(dragIndex) - dur;
-          dragged.startMin = newStart.clamp(minAllowed, maxAllowed);
-          dragged.endMin = dragged.startMin + dur;
-          _pushUpwards(dragIndex);
-          _pushDownwards(dragIndex);
-        }
-      });
-    },
-    onVerticalDragEnd: (details) {
-      setState(() {
-        if (isDoubleClickMode) {
-          List<List<int>> freeGaps = [];
-          int currentMax = 0;
-          final others = events.where((e) => e.id != event.id).toList()
-            ..sort((a, b) => a.startMin.compareTo(b.startMin));
+                            for (var o in others) {
+                              if (o.startMin > currentMax) freeGaps.add([currentMax, o.startMin]);
+                              if (o.endMin > currentMax) currentMax = o.endMin;
+                            }
+                            if (1440 > currentMax) freeGaps.add([currentMax, 1440]);
 
-          for (var o in others) {
-            if (o.startMin > currentMax) {
-              freeGaps.add([currentMax, o.startMin]);
-            }
-            if (o.endMin > currentMax) {
-              currentMax = o.endMin;
-            }
-          }
-          if (1440 > currentMax) {
-            freeGaps.add([currentMax, 1440]);
-          }
+                            double dropCenter = event.startMin + event.duration / 2;
+                            List<int>? targetGap;
+                            for (var gap in freeGaps) {
+                              if (dropCenter >= gap[0] && dropCenter <= gap[1]) { targetGap = gap; break; }
+                            }
 
-          double dropCenter = event.startMin + event.duration / 2;
-          List<int>? targetGap;
-          for (var gap in freeGaps) {
-            if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
-              targetGap = gap;
-              break;
-            }
-          }
+                            if (targetGap == null) {
+                              int maxOverlap = 0;
+                              for (var gap in freeGaps) {
+                                int overlap = max(0, min(gap[1], event.endMin) - max(gap[0], event.startMin));
+                                if (overlap > maxOverlap) { maxOverlap = overlap; targetGap = gap; }
+                              }
+                            }
 
-          if (targetGap == null) {
-            int maxOverlap = 0;
-            for (var gap in freeGaps) {
-              int overlapStart = max(gap[0], event.startMin);
-              int overlapEnd = min(gap[1], event.endMin);
-              int overlap = max(0, overlapEnd - overlapStart);
-              if (overlap > maxOverlap) {
-                maxOverlap = overlap;
-                targetGap = gap;
-              }
-            }
-          }
+                            bool fitSuccess = false;
+                            if (targetGap != null) {
+                              int gStart = targetGap[0], gEnd = targetGap[1], gDur = gEnd - gStart;
+                              if (gDur >= globalMinDuration) {
+                                int origDur = preDragState[event.id]!.duration;
+                                int proposedStart = event.startMin.clamp(gStart, gEnd - globalMinDuration);
+                                int proposedEnd = min(gEnd, proposedStart + origDur);
+                                if (proposedEnd - proposedStart < globalMinDuration) proposedStart = proposedEnd - globalMinDuration;
+                                event.startMin = proposedStart;
+                                event.endMin = proposedEnd;
+                                fitSuccess = true;
+                              }
+                            }
+                            if (!fitSuccess) {
+                              event.startMin = preDragState[event.id]!.startMin;
+                              event.endMin = preDragState[event.id]!.endMin;
+                            }
+                          }
+                          draggingId = null;
+                          preDragState.clear();
+                          events.sort((a, b) => a.startMin.compareTo(b.startMin));
+                        });
+                      },
+                      child: Container(color: Colors.transparent),
+                    ),
+                  ),
 
-          bool fitSuccess = false;
-          if (targetGap != null) {
-            int gStart = targetGap[0];
-            int gEnd = targetGap[1];
-            int gDur = gEnd - gStart;
-            
-            if (gDur >= globalMinDuration) {
-              int origDur = preDragState[event.id]!.duration;
-              int proposedStart = event.startMin;
-              if (proposedStart < gStart) proposedStart = gStart;
-              int proposedEnd = proposedStart + origDur;
+                  // 上端ハンドル（リサイズ）
+                  Positioned(
+                    top: handleOffset, left: 0, right: 0, height: handleHeight,
+                    child: GestureDetector(
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          draggingId = event.id; dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        if (isDoubleClickMode) return; 
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+                          int newStart = _snap(preDragState[events[dragIndex].id]!.startMin + totalDelta);
+                          events[dragIndex].startMin = newStart.clamp(_getFloor(dragIndex), preDragState[events[dragIndex].id]!.endMin - globalMinDuration);
+                          _pushUpwards(dragIndex);
+                        });
+                      },
+                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
+                      child: Container(color: Colors.transparent, alignment: Alignment.topCenter, padding: const EdgeInsets.only(top: 6), child: Container(width: 8, height: 8, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
+                    ),
+                  ),
 
-              if (proposedEnd > gEnd) {
-                proposedEnd = gEnd;
-                proposedStart = max(gStart, proposedEnd - origDur);
-                if (proposedEnd - proposedStart < globalMinDuration) {
-                  proposedStart = proposedEnd - globalMinDuration;
-                }
-              }
-              event.startMin = proposedStart;
-              event.endMin = proposedEnd;
-              fitSuccess = true;
-            }
-          }
-          if (!fitSuccess) {
-            event.startMin = preDragState[event.id]!.startMin;
-            event.endMin = preDragState[event.id]!.endMin;
-          }
-        }
-        
-        draggingId = null;
-        preDragState.clear();
-        events.sort((a, b) => a.startMin.compareTo(b.startMin));
-      });
-    },
-    onVerticalDragCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
-    child: Container(color: Colors.transparent),
-  ),
-),
-
-// ② 上端ハンドル（リサイズ）
-Positioned(
-  top: handleOffset, left: 0, right: 0, height: handleHeight,
-  child: GestureDetector(
-    onVerticalDragStart: (details) {
-      setState(() {
-        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-        draggingId = event.id;
-        dragStartGlobalY = details.globalPosition.dy;
-        preDragState = { for (var e in events) e.id: e.clone() };
-      });
-    },
-    onVerticalDragUpdate: (details) {
-      if (isDoubleClickMode) return;
-      setState(() {
-        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-        int dragIndex = events.indexWhere((e) => e.id == draggingId);
-        if (dragIndex == -1) return;
-        int newStart = _snap(preDragState[events[dragIndex].id]!.startMin + totalDelta);
-        events[dragIndex].startMin = newStart.clamp(_getFloor(dragIndex), preDragState[events[dragIndex].id]!.endMin - globalMinDuration);
-        _pushUpwards(dragIndex);
-      });
-    },
-    onVerticalDragEnd: (_) => setState(() => draggingId = null),
-    onVerticalDragCancel: () => setState(() => draggingId = null),
-    child: Container(
-      color: Colors.transparent,
-      alignment: Alignment.topCenter,
-      padding: const EdgeInsets.only(top: 6),
-      // 修正箇所：未定義だった displayColor を event.color に変更
-      child: Container(width: 8, height: 8, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle))
-    ),
-  ),
-),
-
-// ③ 下端ハンドル（リサイズ）
-Positioned(
-  bottom: handleOffset, left: 0, right: 0, height: handleHeight,
-  child: GestureDetector(
-    onVerticalDragStart: (details) {
-      setState(() {
-        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
-        draggingId = event.id;
-        dragStartGlobalY = details.globalPosition.dy;
-        preDragState = { for (var e in events) e.id: e.clone() };
-      });
-    },
-    onVerticalDragUpdate: (details) {
-      if (isDoubleClickMode) return;
-      setState(() {
-        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-        int dragIndex = events.indexWhere((e) => e.id == draggingId);
-        if (dragIndex == -1) return;
-        int newEnd = _snap(preDragState[events[dragIndex].id]!.endMin + totalDelta);
-        events[dragIndex].endMin = newEnd.clamp(preDragState[events[dragIndex].id]!.startMin + globalMinDuration, _getCeil(dragIndex));
-        _pushDownwards(dragIndex);
-      });
-    },
-    onVerticalDragEnd: (_) => setState(() => draggingId = null),
-    onVerticalDragCancel: () => setState(() => draggingId = null),
-    child: Container(
-      color: Colors.transparent,
-      alignment: Alignment.bottomCenter,
-      padding: const EdgeInsets.only(bottom: 6),
-      // 修正箇所：未定義だった displayColor を event.color に変更
-      child: Container(width: 8, height: 8, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle))
-    ),
-  ),
-),
+                  // 下端ハンドル（リサイズ）
+                  Positioned(
+                    bottom: handleOffset, left: 0, right: 0, height: handleHeight,
+                    child: GestureDetector(
+                      onVerticalDragStart: (details) {
+                        setState(() {
+                          draggingId = event.id; dragStartGlobalY = details.globalPosition.dy;
+                          preDragState = { for (var e in events) e.id: e.clone() };
+                        });
+                      },
+                      onVerticalDragUpdate: (details) {
+                        if (isDoubleClickMode) return; 
+                        setState(() {
+                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
+                          if (dragIndex == -1) return;
+                          int newEnd = _snap(preDragState[events[dragIndex].id]!.endMin + totalDelta);
+                          events[dragIndex].endMin = newEnd.clamp(preDragState[events[dragIndex].id]!.startMin + globalMinDuration, _getCeil(dragIndex));
+                          _pushDownwards(dragIndex);
+                        });
+                      },
+                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
+                      child: Container(color: Colors.transparent, alignment: Alignment.bottomCenter, padding: const EdgeInsets.only(bottom: 6), child: Container(width: 8, height: 8, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
+                    ),
+                  ),
 
                   Positioned(
                     top: 4, right: 6,
@@ -1043,7 +963,7 @@ Positioned(
       ),
     );
   }
-
+  
   String _formatTime(int minutes) {
     int h = minutes ~/ 60; int m = minutes % 60;
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
