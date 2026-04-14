@@ -720,7 +720,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 children: [
                   Positioned.fill(
                     child: Container(
-                      // 【重要】Clip.antiAliasではみ出た縞々警告を完全カット
+                      // 【重要】Clip.antiAliasではみ出た見た目をカット
                       clipBehavior: Clip.antiAlias, 
                       decoration: BoxDecoration(
                         color: displayColor.withOpacity(0.15), 
@@ -729,24 +729,28 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ),
                       child: Padding(
                         padding: EdgeInsets.symmetric(horizontal: 12, vertical: verticalPadding),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 25px以下の超薄型ブロックではタイトルも隠す
-                            if (blockHeight > 25)
-                              Row(
-                                children: [
-                                  Icon(displayIcon, color: Colors.white, size: 18), 
-                                  const SizedBox(width: 8),
-                                  Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                ],
-                              ),
-                            // 50px以下のブロックでは時間表示を隠してエラー回避
-                            if (blockHeight > 50) ...[
-                              const SizedBox(height: 4),
-                              Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            ]
-                          ],
+                        // ↓【修正】ここを SingleChildScrollView で包んでエラーを無効化
+                        child: SingleChildScrollView(
+                          physics: const NeverScrollableScrollPhysics(), // スクロールはさせない
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 25px以下の超薄型ブロックではタイトルも隠す
+                              if (blockHeight > 25)
+                                Row(
+                                  children: [
+                                    Icon(displayIcon, color: Colors.white, size: 18), 
+                                    const SizedBox(width: 8),
+                                    Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                  ],
+                                ),
+                              // 50px以下のブロックでは時間表示を隠してエラー回避
+                              if (blockHeight > 50) ...[
+                                const SizedBox(height: 4),
+                                Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ]
+                            ],
+                          ),
                         ),
                       ),
                     ),
