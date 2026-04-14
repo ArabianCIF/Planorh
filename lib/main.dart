@@ -37,9 +37,7 @@ class ScheduleEvent {
   String location;
   String notes;
 
-  // ▼【解決策2のキモ】アイコンの対応表を定義する
-  // ここにアプリで使う可能性があるアイコンをすべて「定数」として並べます。
-  // これにより、コンパイラが「これらは削除しちゃダメだ」と判断してくれます。
+  // アイコンの断捨離（Tree Shaking）エラーを防ぐための対応表
   static const Map<int, IconData> _iconMap = {
     0xe24d: Icons.event_note,
     0xe595: Icons.wb_sunny_outlined,
@@ -96,12 +94,10 @@ class ScheduleEvent {
   }
 
   factory ScheduleEvent.fromJson(Map<String, dynamic> json) {
-    // ▼【修正箇所】動的な生成ではなく、対応表から「定数」を取り出すようにする
     final int code = json['iconCode'];
     return ScheduleEvent(
       id: json['id'],
       title: json['title'],
-      // 対応表にコードがあればそれを使う。なければデフォルトのアイコンにする。
       icon: _iconMap[code] ?? Icons.event_note, 
       color: Color(json['colorValue']),
       startMin: json['startMin'],
@@ -121,7 +117,8 @@ class InteractiveSchedule extends StatefulWidget {
 }
 
 class _InteractiveScheduleState extends State<InteractiveSchedule> {
-  final int snapInterval = 1; 
+  // 【修正】5分単位で強力に吸い付くように変更
+  final int snapInterval = 10; 
   double pixelsPerMinute = 1.0; 
   final int globalMinDuration = 10; 
 
@@ -149,10 +146,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Map<String, ScheduleEvent> preDragState = {};
   double dragStartGlobalY = 0.0;
 
-  // ▼ 追加: 保存アニメーション用の状態フラグ
   bool _isSaved = false;
 
-  // 初期データ（モック）。初回起動時やデータがない場合に使用されます。
   List<ScheduleEvent> events = [
     ScheduleEvent(id: '1', title: 'Morning Task (朝食)', icon: Icons.wb_sunny_outlined, color: const Color(0xFF4A89DC), startMin: 480, endMin: 600, location: '自宅 ダイニング', notes: '今日のタスク整理とメールチェックを済ませる。ゆっくりコーヒーを飲む。'),
     ScheduleEvent(id: '2', title: 'Deep Work (勉強)', icon: Icons.psychology_outlined, color: const Color(0xFF8CC152), startMin: 660, endMin: 780, location: '駅前のカフェ', notes: 'FlutterのUI実装と状態管理の復習。参考書の第3章を終わらせる。'),
@@ -166,18 +161,15 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     ScheduleEvent(id: 'tpl_4', title: '食事', icon: Icons.restaurant, color: const Color(0xFFFFCE54), startMin: 0, endMin: 60),
   ];
 
-  // ▼ 追加: 画面の初期化時にローカルストレージからデータを読み込む
   @override
   void initState() {
     super.initState();
     _loadEvents();
   }
 
-  // ▼ 追加: データ読み込みロジック
   Future<void> _loadEvents() async {
     final prefs = await SharedPreferences.getInstance();
     final String? eventsJson = prefs.getString('schedule_events');
-    
     if (eventsJson != null) {
       final List<dynamic> decoded = jsonDecode(eventsJson);
       setState(() {
@@ -186,7 +178,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     }
   }
 
-  // ▼ 追加: データ保存ロジック
   Future<void> _saveEvents() async {
     final prefs = await SharedPreferences.getInstance();
     final String encoded = jsonEncode(events.map((e) => e.toJson()).toList());
@@ -202,35 +193,24 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     if (title.isEmpty || title == '新規予定') return;
     setState(() {
       eventHistory.removeWhere((item) => item['title'] == title);
-      eventHistory.insert(0, {
-        'title': title,
-        'location': location,
-        'notes': notes,
-      });
+      eventHistory.insert(0, {'title': title, 'location': location, 'notes': notes});
       if (eventHistory.length > 5) eventHistory.removeLast();
     });
   }
 
-  // 全予定をリセットする関数
   void _showResetConfirmation() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E2024),
-        title: const Text('スケジュールのリセット', style: TextStyle(color: Colors.white)),
-        content: const Text('すべての予定を削除して白紙に戻しますか？', style: TextStyle(color: Colors.white70)),
+        title: const Text('スケジュールのリセット'),
+        content: const Text('すべての予定を削除して白紙に戻しますか？'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル', style: TextStyle(color: Colors.white54)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
           TextButton(
             onPressed: () {
-              setState(() {
-                events.clear();
-                selectedEvent = null;
-              });
-              _saveEvents(); // ストレージも更新
+              setState(() { events.clear(); selectedEvent = null; });
+              _saveEvents();
               Navigator.pop(context);
             },
             child: const Text('リセット', style: TextStyle(color: Colors.redAccent)),
@@ -261,9 +241,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       if (events[i].isPinned) {
         floor = preDragState[events[i].id]!.endMin;
         break;
-      } else {
-        unpinnedSum += globalMinDuration; 
-      }
+      } else { unpinnedSum += globalMinDuration; }
     }
     return floor + unpinnedSum;
   }
@@ -275,9 +253,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       if (events[i].isPinned) {
         ceil = preDragState[events[i].id]!.startMin;
         break;
-      } else {
-        unpinnedSum += globalMinDuration; 
-      }
+      } else { unpinnedSum += globalMinDuration; }
     }
     return ceil - unpinnedSum;
   }
@@ -320,11 +296,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         events.sort((a, b) => a.startMin.compareTo(b.startMin));
         selectedEvent = updatedEvent; 
         _isCreatingNew = false;
-        previewColor = null; 
-        previewIcon = null; 
-        previewStartMin = null; 
-        previewEndMin = null;   
-        
+        previewColor = null; previewIcon = null; previewStartMin = null; previewEndMin = null;   
         _addToHistory(updatedEvent.title, updatedEvent.location, updatedEvent.notes);
       }
     });
@@ -334,25 +306,16 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     setState(() {
       final target = events.firstWhere((e) => e.id == eventId);
       _addToHistory(target.title, target.location, target.notes);
-
       deletingEventId = eventId; 
       if (selectedEvent?.id == eventId) {
-        selectedEvent = null; 
-        _isCreatingNew = false;
-        previewColor = null; 
-        previewIcon = null; 
-        previewStartMin = null; 
-        previewEndMin = null;   
+        selectedEvent = null; _isCreatingNew = false;
       }
     });
-
     Future.delayed(const Duration(milliseconds: 350), () {
       if (mounted) {
         setState(() {
           events.removeWhere((e) => e.id == eventId);
-          if (deletingEventId == eventId) {
-            deletingEventId = null;
-          }
+          if (deletingEventId == eventId) deletingEventId = null;
         });
       }
     });
@@ -361,24 +324,14 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   void _cancelNewEvent() {
     if (selectedEvent == null) return;
     final String targetId = selectedEvent!.id;
-
     setState(() {
-      deletingEventId = targetId;
-      selectedEvent = null;       
-      _isCreatingNew = false;
-      previewColor = null; 
-      previewIcon = null; 
-      previewStartMin = null; 
-      previewEndMin = null;   
+      deletingEventId = targetId; selectedEvent = null; _isCreatingNew = false;
     });
-
     Future.delayed(const Duration(milliseconds: 350), () {
       if (mounted) {
         setState(() {
           events.removeWhere((e) => e.id == targetId);
-          if (deletingEventId == targetId) {
-            deletingEventId = null;
-          }
+          if (deletingEventId == targetId) deletingEventId = null;
         });
       }
     });
@@ -387,28 +340,18 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   void _addEventAt(int startMin, {ScheduleEvent? template, int? specificDuration}) {
     int maxAllowed = 1440;
     for (var e in events) {
-      if (e.startMin >= startMin && e.startMin < maxAllowed) {
-        maxAllowed = e.startMin;
-      }
+      if (e.startMin >= startMin && e.startMin < maxAllowed) maxAllowed = e.startMin;
     }
-
     int desiredDur = specificDuration ?? (template != null ? template.duration : 60);
     int endMin = min(startMin + desiredDur, maxAllowed);
-
-    if (endMin - startMin < globalMinDuration) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('予定を配置する十分な空き時間がありません')),
-      );
-      return;
-    }
+    if (endMin - startMin < globalMinDuration) return;
 
     var newEvent = ScheduleEvent(
       id: 'new_${DateTime.now().millisecondsSinceEpoch}',
       title: template != null ? template.title : '新規予定',
       icon: template != null ? template.icon : Icons.event_note,
       color: template != null ? template.color : const Color(0xFF967ADC), 
-      startMin: startMin,
-      endMin: endMin,
+      startMin: startMin, endMin: endMin,
       location: template != null ? template.location : '',
       notes: template != null ? template.notes : '',
     );
@@ -418,10 +361,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       events.sort((a, b) => a.startMin.compareTo(b.startMin));
       selectedEvent = newEvent;
       _isCreatingNew = template == null; 
-      previewColor = null; 
-      previewIcon = null; 
-      previewStartMin = null;
-      previewEndMin = null;
     });
   }
 
@@ -435,12 +374,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
         return SafeArea(
           child: SingleChildScrollView( 
             child: Padding(
-              padding: EdgeInsets.only(
-                left: 16.0, 
-                right: 16.0, 
-                top: 24.0, 
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
-              ),
+              padding: EdgeInsets.only(left: 16, right: 16, top: 24, bottom: MediaQuery.of(context).viewInsets.bottom + 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -453,42 +387,20 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  
                   ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.add, color: Colors.white),
-                    ),
+                    leading: const Icon(Icons.add, color: Colors.white),
                     title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _addEventAt(tappedMin);
-                    },
+                    onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                   ),
-                  
                   const Divider(color: Colors.white10, height: 32),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 12.0),
-                    child: Text('テンプレートから選ぶ', style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold)),
-                  ),
-                  
                   Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
+                    spacing: 12, runSpacing: 12,
                     children: templates.map((tpl) => ActionChip(
                       avatar: Icon(tpl.icon, color: tpl.color, size: 18),
-                      label: Text(tpl.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                      backgroundColor: tpl.color.withOpacity(0.1),
-                      side: BorderSide(color: tpl.color.withOpacity(0.5)),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _addEventAt(tappedMin, template: tpl);
-                      },
+                      label: Text(tpl.title),
+                      onPressed: () { Navigator.pop(context); _addEventAt(tappedMin, template: tpl); },
                     )).toList(),
                   ),
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -500,18 +412,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   @override
   Widget build(BuildContext context) {
-    final sortedEvents = List<ScheduleEvent>.from(events)
-      ..sort((a, b) => a.startMin.compareTo(b.startMin));
-
+    final sortedEvents = List<ScheduleEvent>.from(events)..sort((a, b) => a.startMin.compareTo(b.startMin));
     List<Widget> eventWidgets = [];
     Widget? draggingWidget;
-    
     for (var event in sortedEvents) {
-      if (event.id == draggingId) {
-        draggingWidget = _buildEventBlock(event);
-      } else {
-        eventWidgets.add(_buildEventBlock(event));
-      }
+      if (event.id == draggingId) draggingWidget = _buildEventBlock(event);
+      else eventWidgets.add(_buildEventBlock(event));
     }
     if (draggingWidget != null) eventWidgets.add(draggingWidget);
 
@@ -519,12 +425,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, outerConstraints) {
-            const double minAppWidth = 400.0; 
-            const double minAppHeight = 500.0; 
-            
-            double targetWidth = max(minAppWidth, outerConstraints.maxWidth);
-            double targetHeight = max(minAppHeight, outerConstraints.maxHeight);
-
+            double targetWidth = max(400.0, outerConstraints.maxWidth);
+            double targetHeight = max(500.0, outerConstraints.maxHeight);
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               physics: const ClampingScrollPhysics(), 
@@ -532,12 +434,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 scrollDirection: Axis.vertical, 
                 physics: const ClampingScrollPhysics(),
                 child: SizedBox(
-                  width: targetWidth,
-                  height: targetHeight,
+                  width: targetWidth, height: targetHeight,
                   child: LayoutBuilder(
                     builder: (context, screenConstraints) {
                       bool isMobile = screenConstraints.maxWidth < 600;
-
                       Widget calendarSection = Column(
                         children: [
                           _buildHeader(isMobile),
@@ -556,101 +456,37 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                             onTapUp: (details) {
                                               if (selectedEvent != null) {
                                                 setState(() {
-                                                  if (_isCreatingNew) {
-                                                    _cancelNewEvent();
-                                                  } else {
-                                                    selectedEvent = null;
-                                                  }
-                                                  previewColor = null;
-                                                  previewIcon = null;
-                                                  previewStartMin = null;
-                                                  previewEndMin = null;
+                                                  if (_isCreatingNew) _cancelNewEvent();
+                                                  else selectedEvent = null;
                                                 });
                                                 return;
                                               }
-
                                               int tappedMin = (details.localPosition.dy / pixelsPerMinute).round();
                                               tappedMin = (tappedMin / 10).round() * 10;
-
-                                              bool isOverlapping = events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin);
-                                              if (isOverlapping) {
-                                                return;
-                                              }
-
+                                              if (events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin)) return;
                                               _showTemplateMenu(context, tappedMin);
                                             },
                                             onVerticalDragStart: (details) {
-                                              if (selectedEvent != null) {
-                                                return;
-                                              }
+                                              if (selectedEvent != null) return;
                                               int minTime = (details.localPosition.dy / pixelsPerMinute).round();
                                               minTime = (minTime / 10).round() * 10;
-                                              
-                                              bool isOverlapping = events.any((e) => minTime >= e.startMin && minTime < e.endMin);
-                                              if (isOverlapping) {
-                                                return;
-                                              }
-
-                                              setState(() {
-                                                dragCreateStartMin = minTime;
-                                                dragCreateCurrentMin = minTime;
-                                              });
+                                              if (events.any((e) => minTime >= e.startMin && minTime < e.endMin)) return;
+                                              setState(() { dragCreateStartMin = minTime; dragCreateCurrentMin = minTime; });
                                             },
                                             onVerticalDragUpdate: (details) {
                                               if (dragCreateStartMin == null) return;
                                               int pointerMin = (details.localPosition.dy / pixelsPerMinute).round();
                                               pointerMin = (pointerMin / 10).round() * 10;
-
-                                              int snapThreshold = 15; 
-                                              int bestSnap = pointerMin;
-                                              int minDiff = snapThreshold + 1;
-
-                                              for (var e in events) {
-                                                int diffToStart = (pointerMin - e.startMin).abs();
-                                                if (diffToStart < minDiff) {
-                                                  minDiff = diffToStart;
-                                                  bestSnap = e.startMin;
-                                                }
-                                                int diffToEnd = (pointerMin - e.endMin).abs();
-                                                if (diffToEnd < minDiff) {
-                                                  minDiff = diffToEnd;
-                                                  bestSnap = e.endMin;
-                                                }
-                                              }
-
-                                              if (bestSnap < 0) bestSnap = 0;
-                                              if (bestSnap > 1440) bestSnap = 1440;
-                                              
-                                              setState(() {
-                                                dragCreateCurrentMin = bestSnap;
-                                              });
+                                              setState(() { dragCreateCurrentMin = pointerMin; });
                                             },
                                             onVerticalDragEnd: (details) {
-                                              if (dragCreateStartMin == null || dragCreateCurrentMin == null) {
-                                                setState(() {
-                                                  dragCreateStartMin = null;
-                                                  dragCreateCurrentMin = null;
-                                                });
-                                                return;
-                                              }
-
-                                              int start = min<int>(dragCreateStartMin!, dragCreateCurrentMin!);
-                                              int end = max<int>(dragCreateStartMin!, dragCreateCurrentMin!);
-                                              int tapStart = dragCreateStartMin!; 
-
-                                              setState(() {
-                                                dragCreateStartMin = null;
-                                                dragCreateCurrentMin = null;
-                                              });
-
-                                              if (end - start < globalMinDuration) {
-                                                return;
-                                              }
-
-                                              bool isOverlapping = events.any((e) => start < e.endMin && end > e.startMin);
-                                              
-                                              if (isOverlapping) {
-                                                _showTemplateMenu(context, tapStart);
+                                              if (dragCreateStartMin == null || dragCreateCurrentMin == null) return;
+                                              int start = min(dragCreateStartMin!, dragCreateCurrentMin!);
+                                              int end = max(dragCreateStartMin!, dragCreateCurrentMin!);
+                                              setState(() { dragCreateStartMin = null; dragCreateCurrentMin = null; });
+                                              if (end - start < globalMinDuration) return;
+                                              if (events.any((e) => start < e.endMin && end > e.startMin)) {
+                                                _showTemplateMenu(context, start);
                                               } else {
                                                 _addEventAt(start, specificDuration: end - start);
                                               }
@@ -663,33 +499,18 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                             left: 0, right: 0,
                                             child: Row(
                                               children: [
-                                                SizedBox(
-                                                  width: 60, 
-                                                  child: Text(
-                                                    '${i.toString().padLeft(2, '0')}:00', 
-                                                    textAlign: TextAlign.center, 
-                                                    style: const TextStyle(color: Colors.white54, fontSize: 12)
-                                                  )
-                                                ),
+                                                SizedBox(width: 60, child: Text('${i.toString().padLeft(2, '0')}:00', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54, fontSize: 12))),
                                                 const Expanded(child: Divider(color: Colors.white10, height: 1)),
                                               ],
                                             ),
                                           ),
                                         ...eventWidgets,
-                                        
                                         if (dragCreateStartMin != null && dragCreateCurrentMin != null)
                                           Positioned(
-                                            top: min<int>(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
-                                            height: max<int>(globalMinDuration, (dragCreateCurrentMin! - dragCreateStartMin!).abs()) * pixelsPerMinute,
-                                            left: 70,
-                                            right: 30,
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFF967ADC).withOpacity(0.2),
-                                                border: Border.all(color: const Color(0xFF967ADC), width: 2),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                            ),
+                                            top: min(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
+                                            height: max(globalMinDuration, (dragCreateCurrentMin! - dragCreateStartMin!).abs()) * pixelsPerMinute,
+                                            left: 70, right: 30,
+                                            child: Container(decoration: BoxDecoration(color: const Color(0xFF967ADC).withOpacity(0.2), border: Border.all(color: const Color(0xFF967ADC), width: 2), borderRadius: BorderRadius.circular(8))),
                                           ),
                                       ],
                                     ),
@@ -704,58 +525,28 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       Widget detailSection = selectedEvent != null
                           ? EventDetailPanel(
                               event: selectedEvent!.clone(),
-                              allEvents: events,
-                              history: eventHistory, 
-                              isCreatingNew: _isCreatingNew, 
-                              startInEditMode: _isCreatingNew,
-                              isMobile: isMobile, 
+                              allEvents: events, history: eventHistory, isCreatingNew: _isCreatingNew, startInEditMode: _isCreatingNew, isMobile: isMobile, 
                               onClose: () {
-                                if (_isCreatingNew) {
-                                  _cancelNewEvent();
-                                } else {
-                                  setState(() {
-                                    selectedEvent = null;
-                                    previewColor = null; 
-                                    previewIcon = null; 
-                                    previewStartMin = null; 
-                                    previewEndMin = null;
-                                  });
-                                }
+                                if (_isCreatingNew) _cancelNewEvent();
+                                else setState(() { selectedEvent = null; previewColor = null; previewIcon = null; previewStartMin = null; previewEndMin = null; });
                               },
-                              onSave: _updateEvent,
-                              onDelete: () => _deleteEvent(selectedEvent!.id),
-                              onCancelNew: _cancelNewEvent, 
+                              onSave: _updateEvent, onDelete: () => _deleteEvent(selectedEvent!.id), onCancelNew: _cancelNewEvent, 
                               onColorPreview: (color) => setState(() => previewColor = color),
                               onIconPreview: (icon) => setState(() => previewIcon = icon),
-                              onTimePreview: (List<int>? times) {
-                                setState(() {
-                                  if (times != null) {
-                                    previewStartMin = times[0];
-                                    previewEndMin = times[1];
-                                  } else {
-                                    previewStartMin = null;
-                                    previewEndMin = null;
-                                  }
-                                });
-                              },
-                            )
-                          : const SizedBox.shrink();
+                              onTimePreview: (times) => setState(() {
+                                if (times != null) { previewStartMin = times[0]; previewEndMin = times[1]; }
+                                else { previewStartMin = null; previewEndMin = null; }
+                              }),
+                            ) : const SizedBox.shrink();
 
                       if (isMobile) {
                         return Stack(
                           children: [
                             calendarSection, 
                             AnimatedPositioned(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOutCubic,
-                              top: 0,
-                              bottom: 0,
-                              left: selectedEvent != null ? 0 : screenConstraints.maxWidth,
-                              right: selectedEvent != null ? 0 : -screenConstraints.maxWidth,
-                              child: Container(
-                                color: const Color(0xFF1E2024), 
-                                child: detailSection,
-                              ),
+                              duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic,
+                              top: 0, bottom: 0, left: selectedEvent != null ? 0 : screenConstraints.maxWidth, right: selectedEvent != null ? 0 : -screenConstraints.maxWidth,
+                              child: Container(color: const Color(0xFF1E2024), child: detailSection),
                             ),
                           ],
                         );
@@ -764,11 +555,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           children: [
                             Expanded(child: calendarSection),
                             AnimatedSize(
-                              duration: const Duration(milliseconds: 350),
-                              curve: Curves.easeOutCubic,
-                              child: selectedEvent != null
-                                  ? SizedBox(width: screenConstraints.maxWidth * 0.5, child: detailSection)
-                                  : const SizedBox.shrink(),
+                              duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic,
+                              child: selectedEvent != null ? SizedBox(width: screenConstraints.maxWidth * 0.5, child: detailSection) : const SizedBox.shrink(),
                             ),
                           ],
                         );
@@ -783,6 +571,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       ),
     );
   }
+
   Widget _buildHeader(bool isMobile) {
     return Container(
       width: double.infinity, 
@@ -791,44 +580,29 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1行目: タイトルと統計
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Flexible(
-                child: Text(
-                  'Planorh', 
-                  style: TextStyle(fontSize: isMobile ? 26 : 35, fontWeight: FontWeight.bold, color: Colors.white),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text('Planorh', style: TextStyle(fontSize: isMobile ? 26 : 35, fontWeight: FontWeight.bold, color: Colors.white), overflow: TextOverflow.ellipsis),
               ),
               const SizedBox(width: 8),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  GestureDetector(
-                    onTap: _showResetConfirmation,
-                    child: const Icon(Icons.delete_sweep_outlined, color: Colors.white, size: 28),
-                    ),
-                    const SizedBox(width: 16),
+                  GestureDetector(onTap: _showResetConfirmation, child: const Icon(Icons.delete_sweep_outlined, color: Colors.white, size: 28)),
+                  const SizedBox(width: 16),
                   GestureDetector(
                     onTap: () async {
                       if (_isSaved) return;
                       setState(() => _isSaved = true);
                       await _saveEvents();
-                      Future.delayed(const Duration(seconds: 2), () {
-                        if (mounted) setState(() => _isSaved = false);
-                      });
+                      Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _isSaved = false); });
                     },
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
-                      child: Icon(
-                        _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                        key: ValueKey<bool>(_isSaved),
-                        color: Colors.white,
-                        size: isMobile ? 24 : 28,
-                      ),
+                      child: Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border, key: ValueKey<bool>(_isSaved), color: Colors.white, size: isMobile ? 24 : 28),
                     ),
                   ),
                   SizedBox(width: isMobile ? 12 : 24),
@@ -840,45 +614,31 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             ],
           ),
           const SizedBox(height: 16),
-          // 2行目: ズームとヘルプテキスト
           Row(
             children: [
               const Icon(Icons.zoom_out, color: Colors.white54, size: 16),
-              // スライダーをExpandedで囲い、残りのスペースを自動計算させる
               Expanded(
-                flex: 2, // テキストとの比率調整
+                flex: 2,
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2.0, 
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                    activeTickMarkColor: Colors.white54,
-                    inactiveTickMarkColor: Colors.white24,
+                    trackHeight: 2.0, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                    activeTickMarkColor: Colors.white54, inactiveTickMarkColor: Colors.white24,
                   ),
                   child: Slider(
-                    value: pixelsPerMinute,
-                    min: 0.75, max: 2.0, divisions: 5, 
-                    activeColor: const Color(0xFF4A89DC),
+                    value: pixelsPerMinute, min: 0.75, max: 2.0, divisions: 5, activeColor: const Color(0xFF4A89DC),
                     onChanged: (val) => setState(() => pixelsPerMinute = val),
                   ),
                 ),
               ),
               const Icon(Icons.zoom_in, color: Colors.white54, size: 16),
-              
               if (!isMobile) ...[
                 const SizedBox(width: 8),
                 Text('${(pixelsPerMinute * 100).toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                // ヘルプテキストもExpandedで包んで、入りきらなければ「...」にする
                 Expanded(
                   flex: 3,
                   child: Padding(
                     padding: const EdgeInsets.only(left: 16),
-                    child: Text(
-                      '空白ドラッグ: 追加 | タップ: 詳細', 
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(color: Colors.white54, fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text('空白ドラッグ: 追加 | タップ: 詳細', textAlign: TextAlign.right, style: const TextStyle(color: Colors.white54, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],
@@ -917,32 +677,27 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     double centerMargin = blockHeight > 30 ? 15.0 : 0.0;
     double handleHeight = blockHeight < 30 ? 24.0 : 30.0;
     double handleOffset = blockHeight < 30 ? -16.0 : -10.0;
+    
+    // 【修正】高さに応じてパディングを動的に調整
+    double verticalPadding = blockHeight < 40 ? 4.0 : 8.0;
 
     return AnimatedPositioned(
       key: ValueKey(event.id),
       duration: isDragging ? Duration.zero : const Duration(milliseconds: 200), 
       curve: Curves.easeOutCubic,
       top: displayStartMin * pixelsPerMinute, 
-      height: blockHeight,
-      left: 70,
-      right: 30, 
+      height: blockHeight, left: 70, right: 30, 
       child: Dismissible(
         key: Key('dismiss_${event.id}'),
-        direction: DismissDirection.startToEnd,
+        direction: DismissDirection.startToEnd, 
         background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: 20.0),
-          decoration: BoxDecoration(
-            color: Colors.redAccent.withOpacity(0.8),
-            borderRadius: BorderRadius.circular(8),
-          ),
+          alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 20.0),
+          decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.8), borderRadius: BorderRadius.circular(8)),
           child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
         ),
-        // 即座にStateを更新してウィジェットを消し去る（エラー回避）
         onDismissed: (direction) {
           final target = events.firstWhere((e) => e.id == event.id);
           _addToHistory(target.title, target.location, target.notes);
-          
           setState(() {
             events.removeWhere((e) => e.id == event.id);
             if (selectedEvent?.id == event.id) selectedEvent = null;
@@ -954,10 +709,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
           duration: const Duration(milliseconds: 350),
           curve: isDeleting ? Curves.easeInBack : Curves.easeOutBack, 
           builder: (context, value, child) {
-            return Transform.scale(
-              scale: value,
-              child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
-            );
+            return Transform.scale(scale: value, child: Opacity(opacity: value.clamp(0.0, 1.0), child: child));
           },
           child: Listener(
             onPointerDown: (details) => _onPointerDown(details, event),
@@ -968,27 +720,31 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                 children: [
                   Positioned.fill(
                     child: Container(
-                      clipBehavior: Clip.hardEdge, 
+                      // 【重要】Clip.antiAliasではみ出た縞々警告を完全カット
+                      clipBehavior: Clip.antiAlias, 
                       decoration: BoxDecoration(
                         color: displayColor.withOpacity(0.15), 
                         border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: verticalPadding),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Icon(displayIcon, color: Colors.white, size: 20), 
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                              ],
-                            ),
-                            if (blockHeight > 45) ...[
+                            // 25px以下の超薄型ブロックではタイトルも隠す
+                            if (blockHeight > 25)
+                              Row(
+                                children: [
+                                  Icon(displayIcon, color: Colors.white, size: 18), 
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                ],
+                              ),
+                            // 50px以下のブロックでは時間表示を隠してエラー回避
+                            if (blockHeight > 50) ...[
                               const SizedBox(height: 4),
-                              Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                              Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
                             ]
                           ],
                         ),
@@ -996,119 +752,238 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                     ),
                   ),
 
-                  // 【重要：修正】onVerticalDrag に変更して横方向を Dismissible に明け渡す
-                  Positioned(
-                    top: centerMargin, bottom: centerMargin, left: 0, right: 0,
-                    child: GestureDetector(
-                      onTap: () {
-                        if (isDoubleClickMode) return;
-                        _singleTapTimer?.cancel();
-                        _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
-                          if (mounted && !isDoubleClickMode && draggingId == null) {
-                            setState(() {
-                              if (selectedEvent?.id == event.id) {
-                                selectedEvent = (_isCreatingNew) ? null : null; // Close
-                              } else {
-                                selectedEvent = event;
-                              }
-                            });
-                          }
-                        });
-                      },
-                      onVerticalDragStart: (details) {
-                        setState(() {
-                          draggingId = event.id;
-                          dragStartGlobalY = details.globalPosition.dy;
-                          preDragState = { for (var e in events) e.id: e.clone() };
-                        });
-                      },
-                      onVerticalDragUpdate: (details) {
-                        setState(() {
-                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                          if (dragIndex == -1) return;
-                          
-                          ScheduleEvent dragged = events[dragIndex];
-                          int dur = preDragState[dragged.id]!.duration;
-                          int newStart = _snap(preDragState[dragged.id]!.startMin + totalDelta);
-                          
-                          if (isDoubleClickMode) {
-                            event.startMin = newStart.clamp(0, 1440 - dur);
-                            event.endMin = event.startMin + dur;
-                          } else {
-                            int minAllowed = _getFloor(dragIndex);
-                            int maxAllowed = _getCeil(dragIndex) - dur;
-                            dragged.startMin = newStart.clamp(minAllowed, maxAllowed);
-                            dragged.endMin = dragged.startMin + dur;
-                            _pushUpwards(dragIndex);
-                            _pushDownwards(dragIndex);
-                          }
-                        });
-                      },
-                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
-                      child: Container(color: Colors.transparent),
-                    ),
-                  ),
+                  // 中央：移動ハンドル（5分刻みスナップ）
+// ① 中央：移動・スワップ判定
+Positioned(
+  top: centerMargin, bottom: centerMargin, left: 0, right: 0,
+  child: GestureDetector(
+    onTap: () {
+      if (isDoubleClickMode) return;
+      _singleTapTimer?.cancel();
+      _singleTapTimer = Timer(const Duration(milliseconds: 150), () {
+        if (mounted && !isDoubleClickMode && draggingId == null) {
+          setState(() {
+            if (selectedEvent?.id == event.id) {
+              if (_isCreatingNew) _cancelNewEvent();
+              else selectedEvent = null;
+            } else {
+              if (_isCreatingNew) _cancelNewEvent();
+              selectedEvent = event;
+            }
+            previewColor = null; previewIcon = null;
+            previewStartMin = null; previewEndMin = null;
+          });
+        }
+      });
+    },
+    onVerticalDragStart: (details) {
+      setState(() {
+        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+        draggingId = event.id;
+        dragStartGlobalY = details.globalPosition.dy;
+        preDragState = { for (var e in events) e.id: e.clone() };
+        previewStartMin = null; previewEndMin = null;
+      });
+    },
+    onVerticalDragUpdate: (details) {
+      setState(() {
+        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+        int dragIndex = events.indexWhere((e) => e.id == draggingId);
+        if (dragIndex == -1) return;
+        ScheduleEvent dragged = events[dragIndex];
+        int dur = preDragState[dragged.id]!.duration;
+        int newStart = _snap(preDragState[dragged.id]!.startMin + totalDelta);
 
-                  // 【重要：修正】上端ハンドルも VerticalDrag に
-                  Positioned(
-                    top: handleOffset, left: 0, right: 0, height: handleHeight,
-                    child: GestureDetector(
-                      onVerticalDragStart: (details) {
-                        setState(() {
-                          draggingId = event.id;
-                          dragStartGlobalY = details.globalPosition.dy;
-                          preDragState = { for (var e in events) e.id: e.clone() };
-                        });
-                      },
-                      onVerticalDragUpdate: (details) {
-                        if (isDoubleClickMode) return; 
-                        setState(() {
-                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                          if (dragIndex == -1) return;
-                          int newStart = _snap(preDragState[events[dragIndex].id]!.startMin + totalDelta);
-                          events[dragIndex].startMin = newStart.clamp(_getFloor(dragIndex), preDragState[events[dragIndex].id]!.endMin - globalMinDuration);
-                          _pushUpwards(dragIndex);
-                        });
-                      },
-                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
-                      child: Container(color: Colors.transparent, alignment: Alignment.topCenter, padding: const EdgeInsets.only(top: 6), child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
-                    ),
-                  ),
+        if (isDoubleClickMode) {
+          if (newStart < 0) newStart = 0;
+          if (newStart + dur > 1440) newStart = 1440 - dur;
+          int snapThreshold = 15;
+          int bestSnapStart = newStart;
+          int minDiff = snapThreshold + 1;
+          for (var other in events) {
+            if (other.id == event.id) continue;
+            int diffToEnd = (newStart - other.endMin).abs();
+            if (diffToEnd < minDiff) {
+              minDiff = diffToEnd;
+              bestSnapStart = other.endMin;
+            }
+            int diffToStart = ((newStart + dur) - other.startMin).abs();
+            if (diffToStart < minDiff) {
+              minDiff = diffToStart;
+              bestSnapStart = other.startMin - dur;
+            }
+          }
+          if (bestSnapStart < 0) bestSnapStart = 0;
+          if (bestSnapStart + dur > 1440) bestSnapStart = 1440 - dur;
+          dragged.startMin = bestSnapStart;
+          dragged.endMin = bestSnapStart + dur;
+        } else {
+          int minAllowed = _getFloor(dragIndex);
+          int maxAllowed = _getCeil(dragIndex) - dur;
+          dragged.startMin = newStart.clamp(minAllowed, maxAllowed);
+          dragged.endMin = dragged.startMin + dur;
+          _pushUpwards(dragIndex);
+          _pushDownwards(dragIndex);
+        }
+      });
+    },
+    onVerticalDragEnd: (details) {
+      setState(() {
+        if (isDoubleClickMode) {
+          List<List<int>> freeGaps = [];
+          int currentMax = 0;
+          final others = events.where((e) => e.id != event.id).toList()
+            ..sort((a, b) => a.startMin.compareTo(b.startMin));
 
-                  // 【重要：修正】下端ハンドルも VerticalDrag に
-                  Positioned(
-                    bottom: handleOffset, left: 0, right: 0, height: handleHeight,
-                    child: GestureDetector(
-                      onVerticalDragStart: (details) {
-                        setState(() {
-                          draggingId = event.id;
-                          dragStartGlobalY = details.globalPosition.dy;
-                          preDragState = { for (var e in events) e.id: e.clone() };
-                        });
-                      },
-                      onVerticalDragUpdate: (details) {
-                        if (isDoubleClickMode) return; 
-                        setState(() {
-                          int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
-                          int dragIndex = events.indexWhere((e) => e.id == draggingId);
-                          if (dragIndex == -1) return;
-                          int newEnd = _snap(preDragState[events[dragIndex].id]!.endMin + totalDelta);
-                          events[dragIndex].endMin = newEnd.clamp(preDragState[events[dragIndex].id]!.startMin + globalMinDuration, _getCeil(dragIndex));
-                          _pushDownwards(dragIndex);
-                        });
-                      },
-                      onVerticalDragEnd: (_) => setState(() => draggingId = null),
-                      child: Container(color: Colors.transparent, alignment: Alignment.bottomCenter, padding: const EdgeInsets.only(bottom: 6), child: Container(width: 10, height: 10, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
-                    ),
-                  ),
+          for (var o in others) {
+            if (o.startMin > currentMax) {
+              freeGaps.add([currentMax, o.startMin]);
+            }
+            if (o.endMin > currentMax) {
+              currentMax = o.endMin;
+            }
+          }
+          if (1440 > currentMax) {
+            freeGaps.add([currentMax, 1440]);
+          }
+
+          double dropCenter = event.startMin + event.duration / 2;
+          List<int>? targetGap;
+          for (var gap in freeGaps) {
+            if (dropCenter >= gap[0] && dropCenter <= gap[1]) {
+              targetGap = gap;
+              break;
+            }
+          }
+
+          if (targetGap == null) {
+            int maxOverlap = 0;
+            for (var gap in freeGaps) {
+              int overlapStart = max(gap[0], event.startMin);
+              int overlapEnd = min(gap[1], event.endMin);
+              int overlap = max(0, overlapEnd - overlapStart);
+              if (overlap > maxOverlap) {
+                maxOverlap = overlap;
+                targetGap = gap;
+              }
+            }
+          }
+
+          bool fitSuccess = false;
+          if (targetGap != null) {
+            int gStart = targetGap[0];
+            int gEnd = targetGap[1];
+            int gDur = gEnd - gStart;
+            
+            if (gDur >= globalMinDuration) {
+              int origDur = preDragState[event.id]!.duration;
+              int proposedStart = event.startMin;
+              if (proposedStart < gStart) proposedStart = gStart;
+              int proposedEnd = proposedStart + origDur;
+
+              if (proposedEnd > gEnd) {
+                proposedEnd = gEnd;
+                proposedStart = max(gStart, proposedEnd - origDur);
+                if (proposedEnd - proposedStart < globalMinDuration) {
+                  proposedStart = proposedEnd - globalMinDuration;
+                }
+              }
+              event.startMin = proposedStart;
+              event.endMin = proposedEnd;
+              fitSuccess = true;
+            }
+          }
+          if (!fitSuccess) {
+            event.startMin = preDragState[event.id]!.startMin;
+            event.endMin = preDragState[event.id]!.endMin;
+          }
+        }
+        
+        draggingId = null;
+        preDragState.clear();
+        events.sort((a, b) => a.startMin.compareTo(b.startMin));
+      });
+    },
+    onVerticalDragCancel: () => setState(() { draggingId = null; preDragState.clear(); }),
+    child: Container(color: Colors.transparent),
+  ),
+),
+
+// ② 上端ハンドル（リサイズ）
+Positioned(
+  top: handleOffset, left: 0, right: 0, height: handleHeight,
+  child: GestureDetector(
+    onVerticalDragStart: (details) {
+      setState(() {
+        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+        draggingId = event.id;
+        dragStartGlobalY = details.globalPosition.dy;
+        preDragState = { for (var e in events) e.id: e.clone() };
+      });
+    },
+    onVerticalDragUpdate: (details) {
+      if (isDoubleClickMode) return;
+      setState(() {
+        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+        int dragIndex = events.indexWhere((e) => e.id == draggingId);
+        if (dragIndex == -1) return;
+        int newStart = _snap(preDragState[events[dragIndex].id]!.startMin + totalDelta);
+        events[dragIndex].startMin = newStart.clamp(_getFloor(dragIndex), preDragState[events[dragIndex].id]!.endMin - globalMinDuration);
+        _pushUpwards(dragIndex);
+      });
+    },
+    onVerticalDragEnd: (_) => setState(() => draggingId = null),
+    onVerticalDragCancel: () => setState(() => draggingId = null),
+    child: Container(
+      color: Colors.transparent,
+      alignment: Alignment.topCenter,
+      padding: const EdgeInsets.only(top: 6),
+      // 修正箇所：未定義だった displayColor を event.color に変更
+      child: Container(width: 8, height: 8, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle))
+    ),
+  ),
+),
+
+// ③ 下端ハンドル（リサイズ）
+Positioned(
+  bottom: handleOffset, left: 0, right: 0, height: handleHeight,
+  child: GestureDetector(
+    onVerticalDragStart: (details) {
+      setState(() {
+        if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
+        draggingId = event.id;
+        dragStartGlobalY = details.globalPosition.dy;
+        preDragState = { for (var e in events) e.id: e.clone() };
+      });
+    },
+    onVerticalDragUpdate: (details) {
+      if (isDoubleClickMode) return;
+      setState(() {
+        int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
+        int dragIndex = events.indexWhere((e) => e.id == draggingId);
+        if (dragIndex == -1) return;
+        int newEnd = _snap(preDragState[events[dragIndex].id]!.endMin + totalDelta);
+        events[dragIndex].endMin = newEnd.clamp(preDragState[events[dragIndex].id]!.startMin + globalMinDuration, _getCeil(dragIndex));
+        _pushDownwards(dragIndex);
+      });
+    },
+    onVerticalDragEnd: (_) => setState(() => draggingId = null),
+    onVerticalDragCancel: () => setState(() => draggingId = null),
+    child: Container(
+      color: Colors.transparent,
+      alignment: Alignment.bottomCenter,
+      padding: const EdgeInsets.only(bottom: 6),
+      // 修正箇所：未定義だった displayColor を event.color に変更
+      child: Container(width: 8, height: 8, decoration: BoxDecoration(color: event.color, shape: BoxShape.circle))
+    ),
+  ),
+),
 
                   Positioned(
                     top: 4, right: 6,
                     child: GestureDetector(
                       onTap: () => setState(() => event.isPinned = !event.isPinned),
-                      child: Container(padding: const EdgeInsets.all(6), child: Icon(event.isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: event.isPinned ? Colors.white : Colors.white54, size: 20)),
+                      child: Container(padding: const EdgeInsets.all(6), child: Icon(event.isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: event.isPinned ? Colors.white : Colors.white54, size: 18)),
                     ),
                   ),
                 ],
@@ -1121,11 +996,12 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   }
 
   String _formatTime(int minutes) {
-    int h = minutes ~/ 60;
-    int m = minutes % 60;
+    int h = minutes ~/ 60; int m = minutes % 60;
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 }
+
+// CustomTimePicker と EventDetailPanel は変更なしのため、提供されたコードをそのまま使用
 class CustomTimePicker extends StatefulWidget {
   final int value;
   final int minMinute;
@@ -1147,16 +1023,12 @@ class CustomTimePicker extends StatefulWidget {
 class _CustomTimePickerState extends State<CustomTimePicker> {
   late FixedExtentScrollController _hourController;
   late FixedExtentScrollController _minuteController;
-  
   final int _baseMinute = 100000 * 60; 
 
   @override
   void initState() {
     super.initState();
-    int safeValue = widget.value;
-    if (safeValue < widget.minMinute) safeValue = widget.minMinute;
-    if (safeValue > widget.maxMinute) safeValue = widget.maxMinute;
-
+    int safeValue = widget.value.clamp(widget.minMinute, widget.maxMinute);
     _hourController = FixedExtentScrollController(initialItem: safeValue ~/ 60);
     _minuteController = FixedExtentScrollController(initialItem: _baseMinute + safeValue);
   }
@@ -1167,64 +1039,23 @@ class _CustomTimePickerState extends State<CustomTimePicker> {
     if (oldWidget.value != widget.value) {
       int targetHour = widget.value ~/ 60;
       int targetMinIndex = _baseMinute + widget.value;
-
-      if (_hourController.hasClients && _hourController.selectedItem != targetHour) {
-        _hourController.jumpToItem(targetHour);
-      }
-      if (_minuteController.hasClients && _minuteController.selectedItem != targetMinIndex) {
-        _minuteController.jumpToItem(targetMinIndex);
-      }
+      if (_hourController.hasClients && _hourController.selectedItem != targetHour) _hourController.jumpToItem(targetHour);
+      if (_minuteController.hasClients && _minuteController.selectedItem != targetMinIndex) _minuteController.jumpToItem(targetMinIndex);
     }
   }
 
   @override
-  void dispose() {
-    _hourController.dispose();
-    _minuteController.dispose();
-    super.dispose();
-  }
+  void dispose() { _hourController.dispose(); _minuteController.dispose(); super.dispose(); }
 
   void _updateFromMinute(int index) {
-    int newTotal = index - _baseMinute;
-    
-    if (newTotal < widget.minMinute) {
-      newTotal = widget.minMinute;
-    } else if (newTotal > widget.maxMinute) {
-      newTotal = widget.maxMinute;
-    }
-
-    if (newTotal != widget.value) {
-      widget.onChanged(newTotal);
-    } else {
-      int targetMinIndex = _baseMinute + widget.value;
-      if (_minuteController.selectedItem != targetMinIndex) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_minuteController.hasClients) _minuteController.jumpToItem(targetMinIndex);
-        });
-      }
-    }
+    int newTotal = (index - _baseMinute).clamp(widget.minMinute, widget.maxMinute);
+    if (newTotal != widget.value) widget.onChanged(newTotal);
   }
 
   void _updateFromHour(int index) {
     int currentMin = widget.value % 60;
-    int newTotal = index * 60 + currentMin;
-    
-    if (newTotal < widget.minMinute) {
-      newTotal = widget.minMinute;
-    } else if (newTotal > widget.maxMinute) {
-      newTotal = widget.maxMinute;
-    }
-
-    if (newTotal != widget.value) {
-      widget.onChanged(newTotal);
-    } else {
-      int targetHour = widget.value ~/ 60;
-      if (_hourController.selectedItem != targetHour) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_hourController.hasClients) _hourController.jumpToItem(targetHour);
-        });
-      }
-    }
+    int newTotal = (index * 60 + currentMin).clamp(widget.minMinute, widget.maxMinute);
+    if (newTotal != widget.value) widget.onChanged(newTotal);
   }
 
   @override
@@ -1233,29 +1064,21 @@ class _CustomTimePickerState extends State<CustomTimePicker> {
       children: [
         Expanded(
           child: CupertinoPicker.builder(
-            scrollController: _hourController,
-            itemExtent: 44,
-            childCount: 25, 
+            scrollController: _hourController, itemExtent: 44, childCount: 25, 
             selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: Colors.white.withOpacity(0.08)),
             onSelectedItemChanged: _updateFromHour,
-            itemBuilder: (context, index) {
-              if (index < 0 || index > 24) return null;
-              return Center(child: Text(index.toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26)));
-            },
+            itemBuilder: (context, index) => (index >= 0 && index <= 24) ? Center(child: Text(index.toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26))) : null,
           ),
         ),
         const Text(':', style: TextStyle(color: Colors.white54, fontSize: 26, fontWeight: FontWeight.bold)),
         Expanded(
           child: CupertinoPicker.builder(
-            scrollController: _minuteController,
-            itemExtent: 44,
-            childCount: 60, 
+            scrollController: _minuteController, itemExtent: 44, childCount: 60 * 1000000, 
             selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: Colors.white.withOpacity(0.08)),
             onSelectedItemChanged: _updateFromMinute,
             itemBuilder: (context, index) {
               int val = index - _baseMinute;
-              if (val < 0 || val > 1440) return null;
-              return Center(child: Text((val % 60).toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26)));
+              return (val >= 0 && val <= 1440) ? Center(child: Text((val % 60).toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white, fontSize: 26))) : null;
             },
           ),
         ),
@@ -1280,20 +1103,9 @@ class EventDetailPanel extends StatefulWidget {
   final ValueChanged<List<int>?> onTimePreview; 
 
   const EventDetailPanel({
-    super.key,
-    required this.event,
-    required this.allEvents,
-    required this.history,
-    required this.isCreatingNew, 
-    this.startInEditMode = false,
-    required this.isMobile, 
-    required this.onClose,
-    required this.onSave,
-    required this.onDelete,
-    required this.onCancelNew,
-    required this.onColorPreview, 
-    required this.onIconPreview, 
-    required this.onTimePreview, 
+    super.key, required this.event, required this.allEvents, required this.history, required this.isCreatingNew, 
+    this.startInEditMode = false, required this.isMobile, required this.onClose, required this.onSave, required this.onDelete,
+    required this.onCancelNew, required this.onColorPreview, required this.onIconPreview, required this.onTimePreview, 
   });
 
   @override
@@ -1302,71 +1114,33 @@ class EventDetailPanel extends StatefulWidget {
 
 class _EventDetailPanelState extends State<EventDetailPanel> {
   late bool _isEditing;
-  late TextEditingController _titleController;
-  late TextEditingController _locationController;
-  late TextEditingController _notesController;
-  
-  late Color _editColor; 
-  late IconData _editIcon; 
-
-  int _editStartMin = 0;
-  int _editEndMin = 0;
+  late TextEditingController _titleController, _locationController, _notesController;
+  late Color _editColor; late IconData _editIcon; 
+  int _editStartMin = 0, _editEndMin = 0;
   String? _timeError;
 
   final List<Color> _colorPalette = [
-    const Color(0xFF5D9CEC), 
-    const Color(0xFF4FC1E9), 
-    const Color(0xFF48CFAD), 
-    const Color(0xFF8CC152), 
-    const Color(0xFFFFCE54), 
-    const Color(0xFFF6BB42), 
-    const Color(0xFFFC6E51), 
-    const Color(0xFFED5565), 
-    const Color(0xFFDA4453), 
-    const Color(0xFFD770AD), 
-    const Color(0xFF967ADC), 
-    const Color(0xFFAAB2BD), 
+    const Color(0xFF5D9CEC), const Color(0xFF4FC1E9), const Color(0xFF48CFAD), const Color(0xFF8CC152), 
+    const Color(0xFFFFCE54), const Color(0xFFF6BB42), const Color(0xFFFC6E51), const Color(0xFFED5565), 
+    const Color(0xFFDA4453), const Color(0xFFD770AD), const Color(0xFF967ADC), const Color(0xFFAAB2BD), 
   ];
 
   final List<IconData> _iconPalette = [
-    Icons.event_note,
-    Icons.wb_sunny_outlined,
-    Icons.psychology_outlined,
-    Icons.people_outline,
-    Icons.fitness_center,
-    Icons.menu_book,
-    Icons.computer,
-    Icons.restaurant,
-    Icons.shopping_cart_outlined,
-    Icons.train,
-    Icons.local_cafe_outlined,
-    Icons.phone_in_talk_outlined,
-    Icons.music_note_outlined,
-    Icons.movie_creation_outlined,
-    Icons.home_outlined,
-    Icons.work_outline,
+    Icons.event_note, Icons.wb_sunny_outlined, Icons.psychology_outlined, Icons.people_outline, Icons.fitness_center,
+    Icons.menu_book, Icons.computer, Icons.restaurant, Icons.shopping_cart_outlined, Icons.train,
+    Icons.local_cafe_outlined, Icons.phone_in_talk_outlined, Icons.music_note_outlined, Icons.movie_creation_outlined,
+    Icons.home_outlined, Icons.work_outline,
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _isEditing = widget.startInEditMode; 
-    _initControllers();
-  }
+  void initState() { super.initState(); _isEditing = widget.startInEditMode; _initControllers(); }
 
   @override
   void didUpdateWidget(covariant EventDetailPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.event.id != widget.event.id) {
-      _isEditing = widget.startInEditMode; 
-      _initControllers();
-    } else {
-      if (oldWidget.event.startMin != widget.event.startMin || 
-          oldWidget.event.endMin != widget.event.endMin) {
-        _editStartMin = widget.event.startMin;
-        _editEndMin = widget.event.endMin;
-        _timeError = null; 
-      }
+    if (oldWidget.event.id != widget.event.id) { _isEditing = widget.startInEditMode; _initControllers(); }
+    else if (oldWidget.event.startMin != widget.event.startMin || oldWidget.event.endMin != widget.event.endMin) {
+      _editStartMin = widget.event.startMin; _editEndMin = widget.event.endMin; _timeError = null; 
     }
   }
 
@@ -1374,621 +1148,173 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
     _titleController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.title); 
     _locationController = TextEditingController(text: widget.isCreatingNew ? '' : widget.event.location); 
     _notesController = TextEditingController(text: widget.event.notes);
-    _editStartMin = widget.event.startMin;
-    _editEndMin = widget.event.endMin;
-    _editColor = widget.event.color;
-    _editIcon = widget.event.icon; 
-    _timeError = null;
+    _editStartMin = widget.event.startMin; _editEndMin = widget.event.endMin; _editColor = widget.event.color; _editIcon = widget.event.icon; _timeError = null;
   }
 
   @override
-  void dispose() {
-    _titleController.dispose();
-    _locationController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
+  void dispose() { _titleController.dispose(); _locationController.dispose(); _notesController.dispose(); super.dispose(); }
 
   void _applyHistory(Map<String, String> data) {
-    setState(() {
-      _titleController.text = data['title'] ?? '';
-      _locationController.text = data['location'] ?? '';
-      _notesController.text = data['notes'] ?? '';
-    });
+    setState(() { _titleController.text = data['title'] ?? ''; _locationController.text = data['location'] ?? ''; _notesController.text = data['notes'] ?? ''; });
   }
 
   int _getGapStart() {
-    int gapStart = 0;
-    for (var other in widget.allEvents) {
-      if (other.id == widget.event.id) continue;
-      if (other.endMin <= widget.event.startMin) {
-        if (other.endMin > gapStart) gapStart = other.endMin;
-      }
-    }
-    return gapStart;
+    int start = 0;
+    for (var o in widget.allEvents) { if (o.id != widget.event.id && o.endMin <= widget.event.startMin) start = max(start, o.endMin); }
+    return start;
   }
 
   int _getGapEnd() {
-    int gapEnd = 1440;
-    for (var other in widget.allEvents) {
-      if (other.id == widget.event.id) continue;
-      if (other.startMin >= widget.event.endMin) {
-        if (other.startMin < gapEnd) gapEnd = other.startMin;
-      }
-    }
-    return gapEnd;
+    int end = 1440;
+    for (var o in widget.allEvents) { if (o.id != widget.event.id && o.startMin >= widget.event.endMin) end = min(end, o.startMin); }
+    return end;
   }
 
   void _updateTimeState(int pickedMin, bool isStart) {
-    int minDur = 10;
     setState(() {
-      if (isStart) {
-        _editStartMin = pickedMin;
-        if (_editStartMin > _editEndMin - minDur) {
-          _editEndMin = _editStartMin + minDur; 
-        }
-      } else {
-        _editEndMin = pickedMin;
-        if (_editEndMin < _editStartMin + minDur) {
-          _editStartMin = _editEndMin - minDur; 
-        }
-      }
+      if (isStart) { _editStartMin = pickedMin; if (_editStartMin > _editEndMin - 10) _editEndMin = _editStartMin + 10; }
+      else { _editEndMin = pickedMin; if (_editEndMin < _editStartMin + 10) _editStartMin = _editEndMin - 10; }
       _timeError = null; 
     });
     widget.onTimePreview([_editStartMin, _editEndMin]);
   }
 
   void _showTimePickerModal(BuildContext context, bool isStart) {
-    int gapStart = _getGapStart();
-    int gapEnd = _getGapEnd();
-    int minLimit = isStart ? gapStart : gapStart + 10;
-    int maxLimit = isStart ? gapEnd - 10 : gapEnd;
-
+    int minLimit = isStart ? _getGapStart() : _getGapStart() + 10;
+    int maxLimit = isStart ? _getGapEnd() - 10 : _getGapEnd();
     showDialog(
-      context: context,
-      barrierColor: Colors.transparent, 
-      builder: (BuildContext dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Align(
-              alignment: widget.isMobile ? Alignment.center : Alignment.centerRight,
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: MediaQuery.of(context).size.width * (widget.isMobile ? 0.9 : 0.45), 
-                  margin: EdgeInsets.only(right: widget.isMobile ? 0 : 16), 
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2A2D35), 
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 8))
-                    ],
-                    border: Border.all(color: Colors.white10, width: 1),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            TextButton.icon(
-                              onPressed: () async {
-                                Navigator.pop(dialogContext); 
-                                final initialTime = TimeOfDay(
-                                  hour: (isStart ? _editStartMin : _editEndMin) ~/ 60,
-                                  minute: (isStart ? _editStartMin : _editEndMin) % 60,
-                                );
-                                final picked = await showTimePicker(
-                                  context: context,
-                                  initialTime: initialTime,
-                                  initialEntryMode: TimePickerEntryMode.input, 
-                                  builder: (context, child) {
-                                    return Theme(
-                                      data: ThemeData.dark().copyWith(
-                                        colorScheme: ColorScheme.dark(primary: _editColor),
-                                      ),
-                                      child: child!,
-                                    );
-                                  },
-                                );
-                                if (picked != null) {
-                                  int pickedTotal = picked.hour * 60 + picked.minute;
-                                  if (pickedTotal < minLimit) pickedTotal = minLimit;
-                                  if (pickedTotal > maxLimit) pickedTotal = maxLimit;
-                                  _updateTimeState(pickedTotal, isStart);
-                                }
-                              },
-                              icon: const Icon(Icons.keyboard, color: Colors.white54, size: 18),
-                              label: const Text('手入力', style: TextStyle(color: Colors.white54)),
-                            ),
-                            ElevatedButton(
-                              onPressed: () => Navigator.pop(dialogContext),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _editColor,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
-                              ),
-                              child: const Text('完了', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 200,
-                          child: CustomTimePicker(
-                            value: isStart ? _editStartMin : _editEndMin,
-                            minMinute: minLimit, 
-                            maxMinute: maxLimit, 
-                            onChanged: (newMin) {
-                              setDialogState(() {
-                                _updateTimeState(newMin, isStart);
-                              });
-                            }
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+      context: context, barrierColor: Colors.transparent, 
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setS) => Align(
+          alignment: widget.isMobile ? Alignment.center : Alignment.centerRight,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: MediaQuery.of(context).size.width * (widget.isMobile ? 0.9 : 0.45), margin: EdgeInsets.only(right: widget.isMobile ? 0 : 16),
+              decoration: BoxDecoration(color: const Color(0xFF2A2D35), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    TextButton.icon(onPressed: () async {
+                      Navigator.pop(ctx);
+                      final picked = await showTimePicker(context: context, initialTime: TimeOfDay(hour: (isStart ? _editStartMin : _editEndMin) ~/ 60, minute: (isStart ? _editStartMin : _editEndMin) % 60), initialEntryMode: TimePickerEntryMode.input);
+                      if (picked != null) _updateTimeState(picked.hour * 60 + picked.minute, isStart);
+                    }, icon: const Icon(Icons.keyboard), label: const Text('手入力')),
+                    ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('完了')),
+                  ]),
+                  SizedBox(height: 200, child: CustomTimePicker(value: isStart ? _editStartMin : _editEndMin, minMinute: minLimit, maxMinute: maxLimit, onChanged: (v) => setS(() => _updateTimeState(v, isStart)))),
+                ],
               ),
-            );
-          }
-        );
-      }
+            ),
+          ),
+        ),
+      ),
     );
   }
 
   void _saveChanges() {
-    bool hasOverlap = false;
-    for (var other in widget.allEvents) {
-      if (other.id == widget.event.id) continue; 
-      if (_editStartMin < other.endMin && _editEndMin > other.startMin) {
-        hasOverlap = true;
-        break;
-      }
+    if (widget.allEvents.any((o) => o.id != widget.event.id && _editStartMin < o.endMin && _editEndMin > o.startMin)) {
+      setState(() { _timeError = '※指定した時間は重複しています。'; }); return;
     }
-
-    if (hasOverlap) {
-      setState(() {
-        _timeError = '※指定した時間は他のスケジュールと重複しています。';
-      });
-      return; 
-    }
-
-    ScheduleEvent updatedEvent = widget.event.clone();
-    updatedEvent.title = _titleController.text.trim().isEmpty ? '名称未設定の予定' : _titleController.text;
-    updatedEvent.location = _locationController.text;
-    updatedEvent.notes = _notesController.text;
-    updatedEvent.startMin = _editStartMin;
-    updatedEvent.endMin = _editEndMin;
-    updatedEvent.color = _editColor;
-    updatedEvent.icon = _editIcon; 
-    
-    widget.onSave(updatedEvent);
-    setState(() {
-      _isEditing = false;
-    });
+    ScheduleEvent updated = widget.event.clone();
+    updated.title = _titleController.text.trim().isEmpty ? '名称未設定の予定' : _titleController.text;
+    updated.location = _locationController.text; updated.notes = _notesController.text;
+    updated.startMin = _editStartMin; updated.endMin = _editEndMin; updated.color = _editColor; updated.icon = _editIcon;
+    widget.onSave(updated); setState(() { _isEditing = false; });
   }
 
-  String _formatTime(int minutes) {
-    int h = minutes ~/ 60;
-    int m = minutes % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-  }
+  String _formatTime(int mins) => '${(mins ~/ 60).toString().padLeft(2, '0')}:${(mins % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E2024), 
-        border: Border(left: BorderSide(color: Colors.white10, width: 1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: widget.isMobile ? 16 : 24, vertical: 20),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10, width: 1))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded( 
-                  child: Text(
-                    _isEditing ? 'スケジュール編集' : 'スケジュール詳細', 
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    if (widget.isCreatingNew) {
-                      widget.onCancelNew();
-                    } else {
-                      widget.onClose();
-                    }
-                  },
-                  child: const Icon(Icons.close, color: Colors.white54),
-                )
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(widget.isMobile ? 20 : 32),
-              child: _isEditing ? _buildEditMode(context) : _buildViewMode(),
-            ),
-          ),
-        ],
-      ),
+      decoration: const BoxDecoration(color: Color(0xFF1E2024), border: Border(left: BorderSide(color: Colors.white10))),
+      child: Column(children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: widget.isMobile ? 16 : 24, vertical: 20),
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+          child: Row(children: [
+            Expanded(child: Text(_isEditing ? 'スケジュール編集' : 'スケジュール詳細', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+            GestureDetector(onTap: widget.isCreatingNew ? widget.onCancelNew : widget.onClose, child: const Icon(Icons.close, color: Colors.white54)),
+          ]),
+        ),
+        Expanded(child: SingleChildScrollView(padding: EdgeInsets.all(widget.isMobile ? 20 : 32), child: _isEditing ? _buildEditMode() : _buildViewMode())),
+      ]),
     );
   }
 
   Widget _buildViewMode() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: widget.event.color.withOpacity(0.2), shape: BoxShape.circle),
-              child: Icon(widget.event.icon, color: widget.event.color, size: 28),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                widget.event.title, 
-                style: TextStyle(fontSize: widget.isMobile ? 20 : 24, fontWeight: FontWeight.bold, color: Colors.white),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 40),
-        _buildDetailRow(Icons.access_time, '予定時間', '${_formatTime(widget.event.startMin)} - ${_formatTime(widget.event.endMin)}'),
-        const SizedBox(height: 24),
-        _buildDetailRow(Icons.hourglass_bottom, '所要時間', '${widget.event.duration} 分'),
-        const SizedBox(height: 24),
-        _buildDetailRow(Icons.location_on_outlined, '場所', widget.event.location),
-        const SizedBox(height: 32),
-        _buildNotesArea(widget.event.notes),
-        
-        const SizedBox(height: 40),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _isEditing = true;
-                  });
-                },
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('編集する'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4A89DC),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: widget.onDelete, 
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('削除する'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  side: const BorderSide(color: Colors.redAccent),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-          ],
-        )
-      ],
-    );
-  }
-
-  Widget _buildEditMode(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (widget.history.isNotEmpty) ...[
-          const Text('以前の予定からコピー', style: TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1.1)),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 36,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: widget.history.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final item = widget.history[index];
-                return ActionChip(
-                  label: Text(item['title']!, style: const TextStyle(fontSize: 12)),
-                  backgroundColor: Colors.white.withOpacity(0.08),
-                  onPressed: () => _applyHistory(item),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-
-        const Text('タイトル', style: TextStyle(color: Colors.white54, fontSize: 12)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _titleController,
-          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-          decoration: _inputDecoration('タスク名を入力'),
-          autofocus: widget.isCreatingNew, 
-        ),
-        
-        const SizedBox(height: 24),
-
-        const Text('アイコン', style: TextStyle(color: Colors.white54, fontSize: 12)),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: _iconPalette.map((icon) {
-            bool isSelected = _editIcon == icon;
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _editIcon = icon;
-                });
-                widget.onIconPreview(icon); 
-              },
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: isSelected ? _editColor.withOpacity(0.2) : Colors.white.withOpacity(0.05),
-                  shape: BoxShape.circle,
-                  border: isSelected ? Border.all(color: _editColor, width: 2) : null,
-                ),
-                child: Icon(icon, color: isSelected ? _editColor : Colors.white54, size: 20),
-              ),
-            );
-          }).toList(),
-        ),
-
-        const SizedBox(height: 24),
-
-        const Text('カラー', style: TextStyle(color: Colors.white54, fontSize: 12)),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: _colorPalette.map((color) {
-            bool isSelected = _editColor.value == color.value;
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _editColor = color;
-                });
-                widget.onColorPreview(color); 
-              },
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: isSelected ? Border.all(color: Colors.white, width: 3) : null,
-                  boxShadow: isSelected
-                      ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 2)]
-                      : null,
-                ),
-                child: isSelected
-                    ? const Icon(Icons.check, color: Colors.white, size: 20)
-                    : null,
-              ),
-            );
-          }).toList(),
-        ),
-
-        const SizedBox(height: 24),
-        
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('予定時間', style: TextStyle(color: Colors.white54, fontSize: 12)),
-            Text('${_editEndMin - _editStartMin} 分', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () => _showTimePickerModal(context, true),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(_formatTime(_editStartMin), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text('-', style: TextStyle(color: Colors.white54, fontSize: 18)),
-            ),
-            Expanded(
-              child: InkWell(
-                onTap: () => _showTimePickerModal(context, false),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(_formatTime(_editEndMin), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (_timeError != null) ...[
-          const SizedBox(height: 8),
-          Text(_timeError!, style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
-
-        const SizedBox(height: 24),
-        const Text('場所', style: TextStyle(color: Colors.white54, fontSize: 12)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _locationController,
-          style: const TextStyle(color: Colors.white, fontSize: 15),
-          decoration: _inputDecoration('場所を入力 (例: 会議室A)'),
-        ),
-
-        const SizedBox(height: 24),
-        const Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _notesController,
-          maxLines: 6,
-          style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.5),
-          decoration: _inputDecoration('メモを入力...'),
-        ),
-
-        const SizedBox(height: 40),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _saveChanges, 
-                icon: const Icon(Icons.check, size: 18),
-                label: const Text('保存する'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8CC152), 
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () {
-                  if (widget.isCreatingNew) {
-                    widget.onCancelNew();
-                  } else {
-                    setState(() {
-                      _isEditing = false;
-                      _initControllers(); 
-                    });
-                    widget.onColorPreview(null);
-                    widget.onIconPreview(null); 
-                    widget.onTimePreview(null); 
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white54,
-                  side: const BorderSide(color: Colors.white24),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('キャンセル'),
-              ),
-            ),
-          ],
-        )
-      ],
-    );
-  }
-
-  InputDecoration _inputDecoration(String hint) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(color: Colors.white24),
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.05),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: _editColor, width: 1.5), 
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Icon(icon, color: Colors.white54, size: 24),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: widget.event.color.withOpacity(0.2), shape: BoxShape.circle), child: Icon(widget.event.icon, color: widget.event.color, size: 28)),
         const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-              const SizedBox(height: 4),
-              Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
-            ],
-          ),
-        ),
-      ],
-    );
+        Expanded(child: Text(widget.event.title, style: TextStyle(fontSize: widget.isMobile ? 20 : 24, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis)),
+      ]),
+      const SizedBox(height: 40),
+      _buildDetailRow(Icons.access_time, '予定時間', '${_formatTime(widget.event.startMin)} - ${_formatTime(widget.event.endMin)}'),
+      const SizedBox(height: 24),
+      _buildDetailRow(Icons.hourglass_bottom, '所要時間', '${widget.event.duration} 分'),
+      const SizedBox(height: 24),
+      _buildDetailRow(Icons.location_on_outlined, '場所', widget.event.location),
+      const SizedBox(height: 32),
+      _buildNotesArea(widget.event.notes),
+      const SizedBox(height: 40),
+      Row(children: [
+        Expanded(child: ElevatedButton.icon(onPressed: () => setState(() => _isEditing = true), icon: const Icon(Icons.edit, size: 18), label: const Text('編集する'))),
+        const SizedBox(width: 16),
+        Expanded(child: OutlinedButton.icon(onPressed: widget.onDelete, icon: const Icon(Icons.delete_outline, size: 18), label: const Text('削除する'), style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent, side: const BorderSide(color: Colors.redAccent)))),
+      ]),
+    ]);
   }
 
-  Widget _buildNotesArea(String notes) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: const [
-            Icon(Icons.subject, color: Colors.white54, size: 24),
-            SizedBox(width: 16),
-            Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 120),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.03),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Text(
-            notes.isNotEmpty ? notes : '詳細がありません',
-            style: TextStyle(
-              color: notes.isNotEmpty ? Colors.white70 : Colors.white38, 
-              fontSize: 14, 
-              height: 1.6
-            ),
-          ),
-        ),
+  Widget _buildEditMode() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (widget.history.isNotEmpty) ...[
+        const Text('以前の予定からコピー', style: TextStyle(color: Colors.white54, fontSize: 11)),
+        const SizedBox(height: 10),
+        SizedBox(height: 36, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: widget.history.length, separatorBuilder: (_, __) => const SizedBox(width: 8), itemBuilder: (ctx, i) => ActionChip(label: Text(widget.history[i]['title']!, style: const TextStyle(fontSize: 12)), onPressed: () => _applyHistory(widget.history[i])))),
+        const SizedBox(height: 24),
       ],
-    );
+      const Text('タイトル', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      const SizedBox(height: 8),
+      TextField(controller: _titleController, style: const TextStyle(fontWeight: FontWeight.bold), decoration: _inputDecoration('タスク名を入力'), autofocus: widget.isCreatingNew),
+      const SizedBox(height: 24),
+      const Text('アイコン', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      const SizedBox(height: 12),
+      Wrap(spacing: 12, runSpacing: 12, children: _iconPalette.map((i) => GestureDetector(onTap: () { setState(() => _editIcon = i); widget.onIconPreview(i); }, child: Container(width: 36, height: 36, decoration: BoxDecoration(color: _editIcon == i ? _editColor.withOpacity(0.2) : Colors.white.withOpacity(0.05), shape: BoxShape.circle, border: _editIcon == i ? Border.all(color: _editColor, width: 2) : null), child: Icon(i, color: _editIcon == i ? _editColor : Colors.white54, size: 20)))).toList()),
+      const SizedBox(height: 24),
+      const Text('カラー', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      const SizedBox(height: 12),
+      Wrap(spacing: 12, runSpacing: 12, children: _colorPalette.map((c) => GestureDetector(onTap: () { setState(() => _editColor = c); widget.onColorPreview(c); }, child: Container(width: 36, height: 36, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: _editColor.value == c.value ? Border.all(color: Colors.white, width: 3) : null), child: _editColor.value == c.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null))).toList()),
+      const SizedBox(height: 24),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('予定時間', style: TextStyle(color: Colors.white54, fontSize: 12)), Text('${_editEndMin - _editStartMin} 分')]),
+      const SizedBox(height: 8),
+      Row(children: [
+        Expanded(child: InkWell(onTap: () => _showTimePickerModal(context, true), child: Container(padding: const EdgeInsets.symmetric(vertical: 14), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)), child: Center(child: Text(_formatTime(_editStartMin), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))))),
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('-', style: TextStyle(color: Colors.white54, fontSize: 18))),
+        Expanded(child: InkWell(onTap: () => _showTimePickerModal(context, false), child: Container(padding: const EdgeInsets.symmetric(vertical: 14), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)), child: Center(child: Text(_formatTime(_editEndMin), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))))),
+      ]),
+      if (_timeError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_timeError!, style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold))),
+      const SizedBox(height: 24),
+      const Text('場所', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      const SizedBox(height: 8),
+      TextField(controller: _locationController, decoration: _inputDecoration('場所を入力')),
+      const SizedBox(height: 24),
+      const Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      const SizedBox(height: 8),
+      TextField(controller: _notesController, maxLines: 6, decoration: _inputDecoration('メモを入力...')),
+      const SizedBox(height: 40),
+      Row(children: [
+        Expanded(child: ElevatedButton.icon(onPressed: _saveChanges, icon: const Icon(Icons.check, size: 18), label: const Text('保存する'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8CC152)))),
+        const SizedBox(width: 16),
+        Expanded(child: OutlinedButton(onPressed: () { if (widget.isCreatingNew) widget.onCancelNew(); else { setState(() { _isEditing = false; _initControllers(); }); widget.onColorPreview(null); widget.onIconPreview(null); widget.onTimePreview(null); } }, child: const Text('キャンセル'))),
+      ]),
+    ]);
   }
+
+  InputDecoration _inputDecoration(String hint) => InputDecoration(hintText: hint, hintStyle: const TextStyle(color: Colors.white24), filled: true, fillColor: Colors.white.withOpacity(0.05), contentPadding: const EdgeInsets.all(16), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: _editColor, width: 1.5)));
+  Widget _buildDetailRow(IconData i, String l, String v) => Row(children: [Icon(i, color: Colors.white54, size: 24), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(l, style: const TextStyle(color: Colors.white54, fontSize: 12)), const SizedBox(height: 4), Text(v, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500))]))]);
+  Widget _buildNotesArea(String n) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Row(children: [Icon(Icons.subject, color: Colors.white54, size: 24), SizedBox(width: 16), Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12))]), const SizedBox(height: 12), Container(width: double.infinity, constraints: const BoxConstraints(minHeight: 120), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white10)), child: Text(n.isNotEmpty ? n : '詳細がありません', style: TextStyle(color: n.isNotEmpty ? Colors.white70 : Colors.white38, fontSize: 14, height: 1.6)))]);
 }
