@@ -620,7 +620,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.add, color: Colors.white),
-                        title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
+                        title: const Text('新規作成', style: TextStyle(color: Colors.white)),
                         onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                       ),
                       const Divider(color: Colors.white10, height: 32),
