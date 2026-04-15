@@ -37,7 +37,6 @@ class ScheduleEvent {
   String location;
   String notes;
 
-  // アプリ全体で共通して使う16色のカラーパレット
   static const List<Color> colorPalette = [
     Color(0xFF5D9CEC), Color(0xFF4FC1E9), Color(0xFF48CFAD), Color(0xFF8CC152), 
     Color(0xFFFFCE54), Color(0xFFF6BB42), Color(0xFFFC6E51), Color(0xFFED5565), 
@@ -46,37 +45,18 @@ class ScheduleEvent {
   ];
 
   static const Map<int, IconData> _iconMap = {
-    0xe24d: Icons.event_note,
-    0xe595: Icons.wb_sunny_outlined,
-    0xe4f7: Icons.psychology_outlined,
-    0xe4ef: Icons.people_outline,
-    0xe281: Icons.fitness_center,
-    0xe3f3: Icons.menu_book,
-    0xe1ad: Icons.computer,
-    0xe556: Icons.restaurant,
-    0xf0171: Icons.shopping_cart_outlined,
-    0xe675: Icons.train,
-    0xe10f: Icons.local_cafe_outlined,
-    0xe4e2: Icons.phone_in_talk_outlined,
-    0xe405: Icons.music_note_outlined,
-    0xe402: Icons.movie_creation_outlined,
-    0xe318: Icons.home_outlined,
-    0xe6ee: Icons.work_outline,
-    0xef13: Icons.bedtime,
-    0xe1c4: Icons.directions_car,
-    0xe1e1: Icons.directions_walk,
+    0xe24d: Icons.event_note, 0xe595: Icons.wb_sunny_outlined, 0xe4f7: Icons.psychology_outlined,
+    0xe4ef: Icons.people_outline, 0xe281: Icons.fitness_center, 0xe3f3: Icons.menu_book,
+    0xe1ad: Icons.computer, 0xe556: Icons.restaurant, 0xf0171: Icons.shopping_cart_outlined,
+    0xe675: Icons.train, 0xe10f: Icons.local_cafe_outlined, 0xe4e2: Icons.phone_in_talk_outlined,
+    0xe405: Icons.music_note_outlined, 0xe402: Icons.movie_creation_outlined, 0xe318: Icons.home_outlined,
+    0xe6ee: Icons.work_outline, 0xef13: Icons.bedtime, 0xe1c4: Icons.directions_car, 0xe1e1: Icons.directions_walk,
   };
 
   ScheduleEvent({
-    required this.id,
-    required this.title,
-    required this.icon,
-    required this.color,
-    required this.startMin,
-    required this.endMin,
-    this.isPinned = false,
-    this.location = '未設定',
-    this.notes = '',
+    required this.id, required this.title, required this.icon, required this.color,
+    required this.startMin, required this.endMin, this.isPinned = false,
+    this.location = '未設定', this.notes = '',
   });
 
   int get duration => endMin - startMin;
@@ -91,30 +71,18 @@ class ScheduleEvent {
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'title': title,
-      'iconCode': icon.codePoint,
-      'colorValue': color.value,
-      'startMin': startMin,
-      'endMin': endMin,
-      'isPinned': isPinned,
-      'location': location,
-      'notes': notes,
+      'id': id, 'title': title, 'iconCode': icon.codePoint, 'colorValue': color.value,
+      'startMin': startMin, 'endMin': endMin, 'isPinned': isPinned,
+      'location': location, 'notes': notes,
     };
   }
 
   factory ScheduleEvent.fromJson(Map<String, dynamic> json) {
     final int code = json['iconCode'];
     return ScheduleEvent(
-      id: json['id'],
-      title: json['title'],
-      icon: _iconMap[code] ?? Icons.event_note, 
-      color: Color(json['colorValue']),
-      startMin: json['startMin'],
-      endMin: json['endMin'],
-      isPinned: json['isPinned'] ?? false,
-      location: json['location'] ?? '未設定',
-      notes: json['notes'] ?? '',
+      id: json['id'], title: json['title'], icon: _iconMap[code] ?? Icons.event_note, 
+      color: Color(json['colorValue']), startMin: json['startMin'], endMin: json['endMin'],
+      isPinned: json['isPinned'] ?? false, location: json['location'] ?? '未設定', notes: json['notes'] ?? '',
     );
   }
 }
@@ -130,6 +98,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   final int snapInterval = 10; 
   double pixelsPerMinute = 1.0; 
   final int globalMinDuration = 10; 
+
+  // --- ドラッグ中の滑らかな視覚的座標 ---
+  double? dragVisualTop;
+  double? dragVisualHeight;
+
+  // --- チュートリアル表示フラグ ---
+  bool _showTutorial = false;
 
   String? draggingId;
   int? draggingIndex; 
@@ -194,15 +169,63 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
   Future<void> _loadEvents() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // 初回起動判定（チュートリアル表示用）
+    final bool hasSeenTutorial = prefs.getBool('has_seen_tutorial') ?? false;
+    if (!hasSeenTutorial) {
+      setState(() => _showTutorial = true);
+    }
+
     final String? eventsJson = prefs.getString('schedule_events');
     if (eventsJson != null) {
+      // 2回目以降：保存されている予定を読み込む
       final List<dynamic> decoded = jsonDecode(eventsJson);
       setState(() => events = decoded.map((e) => ScheduleEvent.fromJson(e)).toList()..sort((a, b) => a.startMin.compareTo(b.startMin)));
+    } else {
+      // 初回起動時：デフォルトの予定ブロックを配置する
+      setState(() {
+        events = [
+          ScheduleEvent(
+            id: 'init_sleep_1',
+            title: '睡眠',
+            icon: Icons.bedtime,
+            color: const Color(0xFF967ADC), // テンプレートの睡眠カラー
+            startMin: 0,       // 0:00
+            endMin: 360,       // 6:00 (6時間)
+          ),
+          ScheduleEvent(
+            id: 'init_meal',
+            title: '食事',
+            icon: Icons.restaurant,
+            color: const Color(0xFFF6BB42), // テンプレートの食事カラー
+            startMin: 720,     // 12:00
+            endMin: 780,       // 13:00 (1時間)
+          ),
+          ScheduleEvent(
+            id: 'init_sleep_2',
+            title: '睡眠',
+            icon: Icons.bedtime,
+            color: const Color(0xFF967ADC), // テンプレートの睡眠カラー
+            startMin: 1320,    // 22:00
+            endMin: 1440,      // 24:00 (2時間)
+          ),
+        ];
+        events.sort((a, b) => a.startMin.compareTo(b.startMin));
+      });
+      // 作成した初期データを保存しておく
+      _saveEvents();
     }
+
     final String? savedSchedulesJson = prefs.getString('saved_schedules');
     if (savedSchedulesJson != null) {
       setState(() => _savedSchedules = List<Map<String, dynamic>>.from(jsonDecode(savedSchedulesJson)));
     }
+  }
+
+  Future<void> _finishTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_tutorial', true);
+    setState(() => _showTutorial = false);
   }
 
   Future<void> _saveEvents() async {
@@ -599,7 +622,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.add, color: Colors.white),
-                        title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
+                        title: const Text('新規作成', style: TextStyle(color: Colors.white)),
                         onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                       ),
                       const Divider(color: Colors.white10, height: 32),
@@ -647,176 +670,201 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     if (draggingWidget != null) eventWidgets.add(draggingWidget);
 
     return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, outerConstraints) {
-            double targetWidth = max(400.0, outerConstraints.maxWidth);
-            double targetHeight = max(500.0, outerConstraints.maxHeight);
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const ClampingScrollPhysics(), 
-              child: SingleChildScrollView(
-                scrollDirection: Axis.vertical, 
-                physics: const ClampingScrollPhysics(),
-                child: SizedBox(
-                  width: targetWidth, height: targetHeight,
-                  child: LayoutBuilder(
-                    builder: (context, screenConstraints) {
-                      bool isMobile = screenConstraints.maxWidth < 600;
-                      Widget calendarSection = Column(
-                        children: [
-                          _buildHeader(isMobile),
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                return SingleChildScrollView(
-                                  child: SizedBox(
-                                    height: 24 * 60 * pixelsPerMinute,
-                                    width: constraints.maxWidth, 
-                                    child: Stack(
-                                      children: [
-                                        Positioned.fill(
-                                          child: GestureDetector(
-                                            behavior: HitTestBehavior.opaque,
-                                            onTapUp: (details) {
-                                              if (selectedEvent != null) {
-                                                if (_isCreatingNew) _cancelNewEvent();
-                                                else setState(() => selectedEvent = null);
-                                              }
-                                              int tappedMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
-                                              if (events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin)) return;
-                                              _showTemplateMenu(context, tappedMin);
-                                            },
-                                            onVerticalDragStart: (details) {
-                                              if (selectedEvent != null) {
-                                                if (_isCreatingNew) _cancelNewEvent();
-                                                else setState(() => selectedEvent = null);
-                                              }
-                                              int minTime = _snap((details.localPosition.dy / pixelsPerMinute).round());
-                                              if (events.any((e) => minTime >= e.startMin && minTime < e.endMin)) return;
-                                              setState(() { dragCreateStartMin = minTime; dragCreateCurrentMin = minTime; });
-                                            },
-                                            onVerticalDragUpdate: (details) {
-                                              if (dragCreateStartMin == null) return;
-                                              int pointerMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
-                                              int snapThreshold = 15;
-                                              for (var e in events) {
-                                                if ((pointerMin - e.startMin).abs() <= snapThreshold) pointerMin = e.startMin;
-                                                else if ((pointerMin - e.endMin).abs() <= snapThreshold) pointerMin = e.endMin;
-                                              }
-                                              if (pointerMin > dragCreateStartMin!) {
-                                                int limit = 1440;
-                                                for (var e in events) if (e.startMin >= dragCreateStartMin! && e.startMin < limit) limit = e.startMin;
-                                                if (pointerMin > limit) pointerMin = limit;
-                                              } else {
-                                                int limit = 0;
-                                                for (var e in events) if (e.endMin <= dragCreateStartMin! && e.endMin > limit) limit = e.endMin;
-                                                if (pointerMin < limit) pointerMin = limit;
-                                              }
-                                              setState(() { dragCreateCurrentMin = pointerMin; });
-                                            },
-                                            onVerticalDragEnd: (details) {
-                                              if (dragCreateStartMin == null || dragCreateCurrentMin == null) return;
-                                              int start = min(dragCreateStartMin!, dragCreateCurrentMin!);
-                                              int end = max(dragCreateStartMin!, dragCreateCurrentMin!);
-                                              setState(() { dragCreateStartMin = null; dragCreateCurrentMin = null; });
-                                              if (end - start < globalMinDuration) return;
-                                              _addEventAt(start, specificDuration: end - start);
-                                            },
-                                          ),
-                                        ),
-                                        for (int i = 0; i <= 24; i++)
-                                          Positioned(
-                                            top: i * 60 * pixelsPerMinute,
-                                            left: 0, right: 0,
-                                            child: Row(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, outerConstraints) {
+                  double targetWidth = max(400.0, outerConstraints.maxWidth);
+                  double targetHeight = max(500.0, outerConstraints.maxHeight);
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(), 
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical, 
+                      physics: const ClampingScrollPhysics(),
+                      child: SizedBox(
+                        width: targetWidth, height: targetHeight,
+                        child: LayoutBuilder(
+                          builder: (context, screenConstraints) {
+                            bool isMobile = screenConstraints.maxWidth < 600;
+                            
+                            Widget calendarSection = RepaintBoundary(
+                              child: Column(
+                                children: [
+                                  _buildHeader(isMobile),
+                                  Expanded(
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        return SingleChildScrollView(
+                                          child: SizedBox(
+                                            height: 24 * 60 * pixelsPerMinute,
+                                            width: constraints.maxWidth, 
+                                            child: Stack(
                                               children: [
-                                                SizedBox(width: 60, child: Text('${i.toString().padLeft(2, '0')}:00', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54, fontSize: 12))),
-                                                const Expanded(child: Divider(color: Colors.white10, height: 1)),
+                                                Positioned.fill(
+                                                  child: GestureDetector(
+                                                    behavior: HitTestBehavior.opaque,
+                                                    onTapUp: (details) {
+                                                      if (selectedEvent != null) {
+                                                        if (_isCreatingNew) _cancelNewEvent();
+                                                        else setState(() => selectedEvent = null);
+                                                      }
+                                                      int tappedMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
+                                                      if (events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin)) return;
+                                                      _showTemplateMenu(context, tappedMin);
+                                                    },
+                                                    onVerticalDragStart: (details) {
+                                                      if (selectedEvent != null) {
+                                                        if (_isCreatingNew) _cancelNewEvent();
+                                                        else setState(() => selectedEvent = null);
+                                                      }
+                                                      int minTime = _snap((details.localPosition.dy / pixelsPerMinute).round());
+                                                      if (events.any((e) => minTime >= e.startMin && minTime < e.endMin)) return;
+                                                      setState(() { dragCreateStartMin = minTime; dragCreateCurrentMin = minTime; });
+                                                    },
+                                                    onVerticalDragUpdate: (details) {
+                                                      if (dragCreateStartMin == null) return;
+                                                      int pointerMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
+                                                      int snapThreshold = 15;
+                                                      for (var e in events) {
+                                                        if ((pointerMin - e.startMin).abs() <= snapThreshold) pointerMin = e.startMin;
+                                                        else if ((pointerMin - e.endMin).abs() <= snapThreshold) pointerMin = e.endMin;
+                                                      }
+                                                      if (pointerMin > dragCreateStartMin!) {
+                                                        int limit = 1440;
+                                                        for (var e in events) if (e.startMin >= dragCreateStartMin! && e.startMin < limit) limit = e.startMin;
+                                                        if (pointerMin > limit) pointerMin = limit;
+                                                      } else {
+                                                        int limit = 0;
+                                                        for (var e in events) if (e.endMin <= dragCreateStartMin! && e.endMin > limit) limit = e.endMin;
+                                                        if (pointerMin < limit) pointerMin = limit;
+                                                      }
+                                                      setState(() { dragCreateCurrentMin = pointerMin; });
+                                                    },
+                                                    onVerticalDragEnd: (details) {
+                                                      if (dragCreateStartMin == null || dragCreateCurrentMin == null) return;
+                                                      int start = min(dragCreateStartMin!, dragCreateCurrentMin!);
+                                                      int end = max(dragCreateStartMin!, dragCreateCurrentMin!);
+                                                      setState(() { dragCreateStartMin = null; dragCreateCurrentMin = null; });
+                                                      if (end - start < globalMinDuration) return;
+                                                      _addEventAt(start, specificDuration: end - start);
+                                                    },
+                                                  ),
+                                                ),
+                                                
+                                                Positioned.fill(
+                                                  child: RepaintBoundary(
+                                                    child: Stack(
+                                                      children: [
+                                                        for (int i = 0; i <= 24; i++)
+                                                          Positioned(
+                                                            top: i * 60 * pixelsPerMinute,
+                                                            left: 0, right: 0,
+                                                            child: Row(
+                                                              children: [
+                                                                SizedBox(width: 60, child: Text('${i.toString().padLeft(2, '0')}:00', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54, fontSize: 12))),
+                                                                const Expanded(child: Divider(color: Colors.white10, height: 1)),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+
+                                                Positioned(
+                                                  top: _currentMinute * pixelsPerMinute - 8,
+                                                  left: 0, right: 0, height: 16,
+                                                  child: Row(
+                                                    children: [
+                                                      SizedBox(
+                                                        width: 60, 
+                                                        child: Text(_formatTime(_currentMinute), 
+                                                        textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold))
+                                                      ),
+                                                      Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle)),
+                                                      const Expanded(child: Divider(color: Colors.redAccent, height: 2, thickness: 1.5)),
+                                                    ],
+                                                  ),
+                                                ),
+
+                                                ...eventWidgets,
+                                                if (dragCreateStartMin != null && dragCreateCurrentMin != null)
+                                                  Positioned(
+                                                    top: min(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
+                                                    height: max(globalMinDuration, (dragCreateCurrentMin! - dragCreateStartMin!).abs()) * pixelsPerMinute,
+                                                    left: 70, right: 30,
+                                                    child: Container(decoration: BoxDecoration(color: const Color(0xFF967ADC).withOpacity(0.2), border: Border.all(color: const Color(0xFF967ADC), width: 2), borderRadius: BorderRadius.circular(8))),
+                                                  ),
                                               ],
                                             ),
                                           ),
-
-                                        Positioned(
-                                          top: _currentMinute * pixelsPerMinute - 8,
-                                          left: 0, right: 0, height: 16,
-                                          child: Row(
-                                            children: [
-                                              SizedBox(
-                                                width: 60, 
-                                                child: Text(_formatTime(_currentMinute), 
-                                                textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold))
-                                              ),
-                                              Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle)),
-                                              const Expanded(child: Divider(color: Colors.redAccent, height: 2, thickness: 1.5)),
-                                            ],
-                                          ),
-                                        ),
-
-                                        ...eventWidgets,
-                                        if (dragCreateStartMin != null && dragCreateCurrentMin != null)
-                                          Positioned(
-                                            top: min(dragCreateStartMin!, dragCreateCurrentMin!) * pixelsPerMinute,
-                                            height: max(globalMinDuration, (dragCreateCurrentMin! - dragCreateStartMin!).abs()) * pixelsPerMinute,
-                                            left: 70, right: 30,
-                                            child: Container(decoration: BoxDecoration(color: const Color(0xFF967ADC).withOpacity(0.2), border: Border.all(color: const Color(0xFF967ADC), width: 2), borderRadius: BorderRadius.circular(8))),
-                                          ),
-                                      ],
+                                        );
+                                      }
                                     ),
                                   ),
-                                );
-                              }
-                            ),
-                          ),
-                        ],
-                      );
+                                ],
+                              ),
+                            );
 
-                      Widget detailSection = selectedEvent != null
-                          ? EventDetailPanel(
-                              event: selectedEvent!.clone(),
-                              allEvents: events, history: eventHistory, isCreatingNew: _isCreatingNew, startInEditMode: _isCreatingNew, isMobile: isMobile, 
-                              onClose: () {
-                                if (_isCreatingNew) _cancelNewEvent();
-                                else setState(() { selectedEvent = null; previewColor = null; previewIcon = null; previewStartMin = null; previewEndMin = null; });
-                              },
-                              onSave: _updateEvent, onDelete: () => _deleteEvent(selectedEvent!.id), onCancelNew: _cancelNewEvent, 
-                              onColorPreview: (color) => setState(() => previewColor = color),
-                              onIconPreview: (icon) => setState(() => previewIcon = icon),
-                              onTimePreview: (times) => setState(() {
-                                if (times != null) { previewStartMin = times[0]; previewEndMin = times[1]; }
-                                else { previewStartMin = null; previewEndMin = null; }
-                              }),
-                            ) : const SizedBox.shrink();
+                            Widget detailSection = selectedEvent != null
+                                ? RepaintBoundary(
+                                    child: EventDetailPanel(
+                                      event: selectedEvent!.clone(),
+                                      allEvents: events, history: eventHistory, isCreatingNew: _isCreatingNew, startInEditMode: _isCreatingNew, isMobile: isMobile, 
+                                      onClose: () {
+                                        if (_isCreatingNew) _cancelNewEvent();
+                                        else setState(() { selectedEvent = null; previewColor = null; previewIcon = null; previewStartMin = null; previewEndMin = null; });
+                                      },
+                                      onSave: _updateEvent, onDelete: () => _deleteEvent(selectedEvent!.id), onCancelNew: _cancelNewEvent, 
+                                      onColorPreview: (color) => setState(() => previewColor = color),
+                                      onIconPreview: (icon) => setState(() => previewIcon = icon),
+                                      onTimePreview: (times) => setState(() {
+                                        if (times != null) { previewStartMin = times[0]; previewEndMin = times[1]; }
+                                        else { previewStartMin = null; previewEndMin = null; }
+                                      }),
+                                    ),
+                                  ) : const SizedBox.shrink();
 
-                      if (isMobile) {
-                        return Stack(
-                          children: [
-                            calendarSection, 
-                            AnimatedPositioned(
-                              duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic,
-                              top: 0, bottom: 0, left: selectedEvent != null ? 0 : screenConstraints.maxWidth, right: selectedEvent != null ? 0 : -screenConstraints.maxWidth,
-                              child: Container(color: const Color(0xFF1E2024), child: detailSection),
-                            ),
-                          ],
-                        );
-                      } else {
-                        return Row(
-                          children: [
-                            Expanded(child: calendarSection),
-                            AnimatedSize(
-                              duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic,
-                              child: selectedEvent != null ? SizedBox(width: screenConstraints.maxWidth * 0.5, child: detailSection) : const SizedBox.shrink(),
-                            ),
-                          ],
-                        );
-                      }
-                    }
-                  ),
-                ),
+                            if (isMobile) {
+                              return Stack(
+                                children: [
+                                  calendarSection, 
+                                  AnimatedPositioned(
+                                    duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic,
+                                    top: 0, bottom: 0, left: selectedEvent != null ? 0 : screenConstraints.maxWidth, right: selectedEvent != null ? 0 : -screenConstraints.maxWidth,
+                                    child: Container(color: const Color(0xFF1E2024), child: detailSection),
+                                  ),
+                                ],
+                              );
+                            } else {
+                              return Row(
+                                children: [
+                                  Expanded(child: calendarSection),
+                                  AnimatedSize(
+                                    duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic,
+                                    child: selectedEvent != null ? SizedBox(width: screenConstraints.maxWidth * 0.5, child: detailSection) : const SizedBox.shrink(),
+                                  ),
+                                ],
+                              );
+                            }
+                          }
+                        ),
+                      ),
+                    ),
+                  );
+                }
               ),
-            );
-          }
-        ),
+            ),
+          ),
+          
+          if (_showTutorial)
+            Positioned.fill(
+              child: TutorialOverlay(onFinish: _finishTutorial),
+            ),
+        ],
       ),
     );
   }
@@ -914,7 +962,14 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     int displayEndMin = (isSelected && previewEndMin != null) ? previewEndMin! : event.endMin;
     int displayDuration = displayEndMin - displayStartMin;
 
-    double blockHeight = displayDuration * pixelsPerMinute;
+    double blockHeight = (isDragging && dragVisualHeight != null) 
+        ? dragVisualHeight! 
+        : displayDuration * pixelsPerMinute;
+    
+    double topPos = (isDragging && dragVisualTop != null) 
+        ? dragVisualTop! 
+        : displayStartMin * pixelsPerMinute;
+
     double centerMargin = blockHeight > 30 ? 15.0 : 0.0;
     double handleHeight = blockHeight < 30 ? 24.0 : 30.0;
     double handleOffset = blockHeight < 30 ? -16.0 : -10.0;
@@ -922,9 +977,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
     return AnimatedPositioned(
       key: ValueKey(event.id),
-      duration: draggingId != null ? Duration.zero : const Duration(milliseconds: 200), 
+      duration: isDragging ? Duration.zero : const Duration(milliseconds: 200), 
       curve: Curves.easeOutCubic,
-      top: displayStartMin * pixelsPerMinute, 
+      top: topPos, 
       height: blockHeight, left: 70, right: 30, 
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.0, end: isDeleting ? 0.0 : 1.0),
@@ -969,33 +1024,35 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: Container(
-                      clipBehavior: Clip.antiAlias, 
-                      decoration: BoxDecoration(
-                        color: displayColor.withOpacity(0.15), 
-                        border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: verticalPadding),
-                        child: SingleChildScrollView( 
-                          physics: const NeverScrollableScrollPhysics(),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (blockHeight > 25)
-                                Row(
-                                  children: [
-                                    Icon(displayIcon, color: Colors.white, size: 18), 
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                  ],
-                                ),
-                              if (blockHeight > 50) ...[
-                                const SizedBox(height: 4),
-                                Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-                              ]
-                            ],
+                    child: RepaintBoundary(
+                      child: Container(
+                        clipBehavior: Clip.antiAlias, 
+                        decoration: BoxDecoration(
+                          color: displayColor.withOpacity(0.15), 
+                          border: Border.all(color: displayColor, width: isSelected ? 3 : 2), 
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: verticalPadding),
+                          child: SingleChildScrollView( 
+                            physics: const NeverScrollableScrollPhysics(),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (blockHeight > 25)
+                                  Row(
+                                    children: [
+                                      Icon(displayIcon, color: Colors.white, size: 18), 
+                                      const SizedBox(width: 8),
+                                      Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                    ],
+                                  ),
+                                if (blockHeight > 50) ...[
+                                  const SizedBox(height: 4),
+                                  Text('${_formatTime(displayStartMin)} - ${_formatTime(displayEndMin)}', style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                ]
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -1022,12 +1079,18 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           if (_isCreatingNew && selectedEvent?.id != event.id) _cancelNewEvent();
                           draggingId = event.id;
                           dragStartGlobalY = details.globalPosition.dy;
+                          
+                          dragVisualTop = event.startMin * pixelsPerMinute;
+                          dragVisualHeight = event.duration * pixelsPerMinute;
+
                           preDragState = { for (var e in events) e.id: e.clone() };
                           draggingIndex = events.indexWhere((e) => e.id == event.id);
                         });
                       },
                       onVerticalDragUpdate: (details) {
                         setState(() {
+                          dragVisualTop = dragVisualTop! + details.delta.dy;
+
                           int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
                           int dragIndex = draggingIndex!;
                           if (dragIndex == -1) return;
@@ -1048,6 +1111,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       },
                       onVerticalDragEnd: (details) {
                         setState(() {
+                          dragVisualTop = null;
+                          dragVisualHeight = null;
+
                           if (isDoubleClickMode) {
                             List<List<int>> freeGaps = [];
                             int currentMax = 0;
@@ -1103,6 +1169,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       onVerticalDragStart: (details) {
                         setState(() {
                           draggingId = event.id; dragStartGlobalY = details.globalPosition.dy;
+                          dragVisualTop = event.startMin * pixelsPerMinute;
+                          dragVisualHeight = event.duration * pixelsPerMinute;
                           preDragState = { for (var e in events) e.id: e.clone() };
                           draggingIndex = events.indexWhere((e) => e.id == event.id);
                         });
@@ -1110,6 +1178,9 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       onVerticalDragUpdate: (details) {
                         if (isDoubleClickMode) return; 
                         setState(() {
+                          dragVisualTop = dragVisualTop! + details.delta.dy;
+                          dragVisualHeight = dragVisualHeight! - details.delta.dy;
+
                           int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
                           int dragIndex = draggingIndex!;
                           if (dragIndex == -1) return;
@@ -1118,7 +1189,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           _pushUpwards(dragIndex);
                         });
                       },
-                      onVerticalDragEnd: (_) { setState(() { draggingId = null; draggingIndex = null; }); _saveEvents(); },
+                      onVerticalDragEnd: (_) { setState(() { draggingId = null; draggingIndex = null; dragVisualTop = null; dragVisualHeight = null; }); _saveEvents(); },
                       child: Container(color: Colors.transparent, alignment: Alignment.topCenter, padding: const EdgeInsets.only(top: 6), child: Container(width: 8, height: 8, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
                     ),
                   ),
@@ -1129,6 +1200,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       onVerticalDragStart: (details) {
                         setState(() {
                           draggingId = event.id; dragStartGlobalY = details.globalPosition.dy;
+                          dragVisualHeight = event.duration * pixelsPerMinute;
                           preDragState = { for (var e in events) e.id: e.clone() };
                           draggingIndex = events.indexWhere((e) => e.id == event.id);
                         });
@@ -1136,6 +1208,8 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       onVerticalDragUpdate: (details) {
                         if (isDoubleClickMode) return; 
                         setState(() {
+                          dragVisualHeight = dragVisualHeight! + details.delta.dy;
+
                           int totalDelta = ((details.globalPosition.dy - dragStartGlobalY) / pixelsPerMinute).round();
                           int dragIndex = draggingIndex!;
                           if (dragIndex == -1) return;
@@ -1144,7 +1218,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           _pushDownwards(dragIndex);
                         });
                       },
-                      onVerticalDragEnd: (_) { setState(() { draggingId = null; draggingIndex = null; }); _saveEvents(); },
+                      onVerticalDragEnd: (_) { setState(() { draggingId = null; draggingIndex = null; dragVisualTop = null; dragVisualHeight = null; }); _saveEvents(); },
                       child: Container(color: Colors.transparent, alignment: Alignment.bottomCenter, padding: const EdgeInsets.only(bottom: 6), child: Container(width: 8, height: 8, decoration: BoxDecoration(color: displayColor, shape: BoxShape.circle))),
                     ),
                   ),
@@ -1468,4 +1542,156 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   InputDecoration _inputDecoration(String hint) => InputDecoration(hintText: hint, hintStyle: const TextStyle(color: Colors.white24), filled: true, fillColor: Colors.white.withOpacity(0.05), contentPadding: const EdgeInsets.all(16), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: _editColor, width: 1.5)));
   Widget _buildDetailRow(IconData i, String l, String v) => Row(children: [Icon(i, color: Colors.white54, size: 24), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(l, style: const TextStyle(color: Colors.white54, fontSize: 12)), const SizedBox(height: 4), Text(v, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500))]))]);
   Widget _buildNotesArea(String n) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Row(children: [Icon(Icons.subject, color: Colors.white54, size: 24), SizedBox(width: 16), Text('詳細・メモ', style: TextStyle(color: Colors.white54, fontSize: 12))]), const SizedBox(height: 12), Container(width: double.infinity, constraints: const BoxConstraints(minHeight: 120), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white10)), child: Text(n.isNotEmpty ? n : '詳細がありません', style: TextStyle(color: n.isNotEmpty ? Colors.white70 : Colors.white38, fontSize: 14, height: 1.6)))]);
+}
+
+// ==========================================
+// チュートリアル（オンボーディング）画面
+// ==========================================
+class TutorialOverlay extends StatefulWidget {
+  final VoidCallback onFinish;
+  const TutorialOverlay({super.key, required this.onFinish});
+
+  @override
+  State<TutorialOverlay> createState() => _TutorialOverlayState();
+}
+
+class _TutorialOverlayState extends State<TutorialOverlay> {
+  final PageController _pageController = PageController();
+  int _currentPage = 0;
+
+  final List<Map<String, dynamic>> _pages = [
+    {
+      'icon': Icons.view_day_outlined,
+      'title': 'Planorhへようこそ',
+      'description': 'パズルのように直感的に1日のスケジュールを組み立てられる、新しいカレンダーアプリです。',
+    },
+    {
+      'icon': Icons.swipe_vertical,
+      'title': '押し出して自動整列',
+      'description': 'ブロックを上下にドラッグすると、他の予定を押し出して自動で整列します。\n\n※ダブルタップしてから動かすと、他の予定をすり抜けて入れ替えることができます。',
+    },
+    {
+      'icon': Icons.edit_calendar,
+      'title': '直感的な追加と編集',
+      'description': '空白の時間を上下にドラッグするだけで、スッと新しい予定を追加できます。\n予定ブロックの上下の端をドラッグすると、時間の長さを変更できます。',
+    },
+  ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black.withOpacity(0.7),
+      child: Center(
+        child: Container(
+          width: 400,
+          height: 460, // ★修正: 420から460に広げて余裕を持たせました
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E2024), 
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white10),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              )
+            ],
+          ),
+          child: Column(
+            children: [
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (int page) => setState(() => _currentPage = page),
+                  itemCount: _pages.length,
+                  itemBuilder: (context, index) {
+                    final page = _pages[index];
+                    return Center( // ★修正: 縦中央に寄せる
+                      child: SingleChildScrollView( // ★追加: 万が一文字が大きくてもエラーにならずスクロール可能に
+                        padding: const EdgeInsets.all(32.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.05),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(page['icon'], size: 64, color: const Color(0xFF5D9CEC)), 
+                            ),
+                            const SizedBox(height: 32),
+                            Text(
+                              page['title'],
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              page['description'],
+                              style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.6),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: widget.onFinish,
+                      child: const Text('スキップ', style: TextStyle(color: Colors.white54)),
+                    ),
+                    
+                    Row(
+                      children: List.generate(
+                        _pages.length,
+                        (index) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          height: 8,
+                          width: _currentPage == index ? 24 : 8,
+                          decoration: BoxDecoration(
+                            color: _currentPage == index ? const Color(0xFF5D9CEC) : Colors.white24,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    TextButton(
+                      onPressed: () {
+                        if (_currentPage < _pages.length - 1) {
+                          _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                        } else {
+                          widget.onFinish();
+                        }
+                      },
+                      child: Text(
+                        _currentPage == _pages.length - 1 ? '始める' : '次へ',
+                        style: const TextStyle(color: Color(0xFF5D9CEC), fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
