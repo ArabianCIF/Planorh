@@ -54,6 +54,10 @@ class ScheduleEvent {
     0xe402: Icons.movie_creation_outlined,
     0xe318: Icons.home_outlined,
     0xe6ee: Icons.work_outline,
+    0xef13: Icons.bedtime, 
+    0xe1c4: Icons.directions_car, 
+    0xe1e1: Icons.directions_walk,  
+    
   };
 
   ScheduleEvent({
@@ -152,10 +156,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   List<ScheduleEvent> events = [];
 
   final List<ScheduleEvent> templates = [
-    ScheduleEvent(id: 'tpl_1', title: '運動 (ジム)', icon: Icons.fitness_center, color: const Color(0xFFFC6E51), startMin: 0, endMin: 60),
-    ScheduleEvent(id: 'tpl_2', title: '読書', icon: Icons.menu_book, color: const Color(0xFF48CFAD), startMin: 0, endMin: 45),
-    ScheduleEvent(id: 'tpl_3', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90),
-    ScheduleEvent(id: 'tpl_4', title: '食事', icon: Icons.restaurant, color: const Color(0xFFFFCE54), startMin: 0, endMin: 60),
+    ScheduleEvent(id: 'tpl_sleep', title: '睡眠', icon: Icons.bedtime, color: const Color(0xFF967ADC), startMin: 0, endMin: 480), // 8時間
+    ScheduleEvent(id: 'tpl_commute', title: '移動', icon: Icons.train, color: const Color(0xFFAAB2BD), startMin: 0, endMin: 30), // 30分
+    ScheduleEvent(id: 'tpl_break', title: '休憩', icon: Icons.local_cafe_outlined, color: const Color(0xFFFFCE54), startMin: 0, endMin: 15), // 15分
+    ScheduleEvent(id: 'tpl_work', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90), // 1時間半
+    ScheduleEvent(id: 'tpl_meal', title: '食事', icon: Icons.restaurant, color: const Color(0xFFF6BB42), startMin: 0, endMin: 60),
+    ScheduleEvent(id: 'tpl_gym', title: '運動', icon: Icons.fitness_center, color: const Color(0xFFFC6E51), startMin: 0, endMin: 60),
+    ScheduleEvent(id: 'tpl_book', title: '読書', icon: Icons.menu_book, color: const Color(0xFF48CFAD), startMin: 0, endMin: 45),
   ];
 
   @override
@@ -587,7 +594,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.add, color: Colors.white),
-                        title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
+                        title: const Text('新規作成', style: TextStyle(color: Colors.white)),
                         onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                       ),
                       const Divider(color: Colors.white10, height: 32),
@@ -1269,10 +1276,12 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   ];
 
   final List<IconData> _iconPalette = [
-    Icons.event_note, Icons.wb_sunny_outlined, Icons.psychology_outlined, Icons.people_outline, Icons.fitness_center,
-    Icons.menu_book, Icons.computer, Icons.restaurant, Icons.shopping_cart_outlined, Icons.train,
-    Icons.local_cafe_outlined, Icons.phone_in_talk_outlined, Icons.music_note_outlined, Icons.movie_creation_outlined,
-    Icons.home_outlined, Icons.work_outline,
+    Icons.event_note, Icons.wb_sunny_outlined, Icons.bedtime, // ← 睡眠を追加
+    Icons.psychology_outlined, Icons.people_outline, Icons.fitness_center,
+    Icons.menu_book, Icons.computer, Icons.restaurant, 
+    Icons.shopping_cart_outlined, Icons.train, Icons.directions_car, Icons.directions_walk, // ← 車と徒歩を追加
+    Icons.local_cafe_outlined, Icons.phone_in_talk_outlined, Icons.music_note_outlined, 
+    Icons.movie_creation_outlined, Icons.home_outlined, Icons.work_outline,
   ];
 
   @override
