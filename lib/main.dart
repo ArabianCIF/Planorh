@@ -37,6 +37,14 @@ class ScheduleEvent {
   String location;
   String notes;
 
+  // アプリ全体で共通して使う16色のカラーパレット
+  static const List<Color> colorPalette = [
+    Color(0xFF5D9CEC), Color(0xFF4FC1E9), Color(0xFF48CFAD), Color(0xFF8CC152), 
+    Color(0xFFFFCE54), Color(0xFFF6BB42), Color(0xFFFC6E51), Color(0xFFED5565), 
+    Color(0xFFDA4453), Color(0xFFD770AD), Color(0xFF967ADC), Color(0xFFAAB2BD), 
+    Color(0xFFEC87C0), Color(0xFF5C97BF), Color(0xFF2ECC71), Color(0xFFE67E22), 
+  ];
+
   static const Map<int, IconData> _iconMap = {
     0xe24d: Icons.event_note,
     0xe595: Icons.wb_sunny_outlined,
@@ -54,10 +62,9 @@ class ScheduleEvent {
     0xe402: Icons.movie_creation_outlined,
     0xe318: Icons.home_outlined,
     0xe6ee: Icons.work_outline,
-    0xef13: Icons.bedtime, 
-    0xe1c4: Icons.directions_car, 
-    0xe1e1: Icons.directions_walk,  
-    
+    0xef13: Icons.bedtime,
+    0xe1c4: Icons.directions_car,
+    0xe1e1: Icons.directions_walk,
   };
 
   ScheduleEvent({
@@ -156,10 +163,10 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   List<ScheduleEvent> events = [];
 
   final List<ScheduleEvent> templates = [
-    ScheduleEvent(id: 'tpl_sleep', title: '睡眠', icon: Icons.bedtime, color: const Color(0xFF967ADC), startMin: 0, endMin: 480), // 8時間
-    ScheduleEvent(id: 'tpl_commute', title: '移動', icon: Icons.train, color: const Color(0xFFAAB2BD), startMin: 0, endMin: 30), // 30分
-    ScheduleEvent(id: 'tpl_break', title: '休憩', icon: Icons.local_cafe_outlined, color: const Color(0xFFFFCE54), startMin: 0, endMin: 15), // 15分
-    ScheduleEvent(id: 'tpl_work', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90), // 1時間半
+    ScheduleEvent(id: 'tpl_sleep', title: '睡眠', icon: Icons.bedtime, color: const Color(0xFF967ADC), startMin: 0, endMin: 480),
+    ScheduleEvent(id: 'tpl_commute', title: '移動', icon: Icons.directions_car, color: const Color(0xFFAAB2BD), startMin: 0, endMin: 30),
+    ScheduleEvent(id: 'tpl_break', title: '休憩', icon: Icons.local_cafe_outlined, color: const Color(0xFFFFCE54), startMin: 0, endMin: 15),
+    ScheduleEvent(id: 'tpl_work', title: '集中ワーク', icon: Icons.computer, color: const Color(0xFF5D9CEC), startMin: 0, endMin: 90),
     ScheduleEvent(id: 'tpl_meal', title: '食事', icon: Icons.restaurant, color: const Color(0xFFF6BB42), startMin: 0, endMin: 60),
     ScheduleEvent(id: 'tpl_gym', title: '運動', icon: Icons.fitness_center, color: const Color(0xFFFC6E51), startMin: 0, endMin: 60),
     ScheduleEvent(id: 'tpl_book', title: '読書', icon: Icons.menu_book, color: const Color(0xFF48CFAD), startMin: 0, endMin: 45),
@@ -210,16 +217,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   }
 
   int _snap(int minutes) {
-    // 普段は10分（または5分）刻みのグリッドにスナップ
     int gridSnap = (minutes / snapInterval).round() * snapInterval;
-    
-    // 【新規追加】現在時刻（赤線）へのマグネット機能
-    // 指の位置が現在時刻から「±8分以内」に近づいたら、赤線にピタッと吸い付く
     int snapToCurrent = 8; 
     if ((minutes - _currentMinute).abs() <= snapToCurrent) {
       return _currentMinute;
     }
-    
     return gridSnap;
   }
 
@@ -494,11 +496,13 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
     int endMin = min(startMin + desiredDur, maxAllowed);
     if (endMin - startMin < globalMinDuration) return;
 
+    Color randomColor = ScheduleEvent.colorPalette[Random().nextInt(ScheduleEvent.colorPalette.length)];
+
     var newEvent = ScheduleEvent(
       id: 'new_${DateTime.now().millisecondsSinceEpoch}',
       title: template != null ? template.title : '新規予定',
       icon: template != null ? template.icon : Icons.event_note,
-      color: template != null ? template.color : const Color(0xFF967ADC), 
+      color: template != null ? template.color : randomColor, 
       startMin: startMin, endMin: endMin,
       location: template != null ? template.location : '',
       notes: template != null ? template.notes : '',
@@ -559,10 +563,11 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                           label: Text(hist['title'] ?? '', style: const TextStyle(color: Colors.white70)),
                           onPressed: () {
                             Navigator.pop(context);
+                            Color randomColor = ScheduleEvent.colorPalette[Random().nextInt(ScheduleEvent.colorPalette.length)];
                             var newEvent = ScheduleEvent(
                               id: 'new_${DateTime.now().millisecondsSinceEpoch}',
                               title: hist['title'] ?? '新規予定',
-                              icon: Icons.event_note, color: const Color(0xFF967ADC),
+                              icon: Icons.event_note, color: randomColor,
                               startMin: tappedMin, endMin: tappedMin + 60,
                               location: hist['location'] ?? '', notes: hist['notes'] ?? '',
                             );
@@ -594,7 +599,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.add, color: Colors.white),
-                        title: const Text('新規作成', style: TextStyle(color: Colors.white)),
+                        title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
                         onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                       ),
                       const Divider(color: Colors.white10, height: 32),
@@ -675,18 +680,18 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                             behavior: HitTestBehavior.opaque,
                                             onTapUp: (details) {
                                               if (selectedEvent != null) {
-                                                setState(() {
-                                                  if (_isCreatingNew) _cancelNewEvent();
-                                                  else selectedEvent = null;
-                                                });
-                                                return;
+                                                if (_isCreatingNew) _cancelNewEvent();
+                                                else setState(() => selectedEvent = null);
                                               }
                                               int tappedMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
                                               if (events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin)) return;
                                               _showTemplateMenu(context, tappedMin);
                                             },
                                             onVerticalDragStart: (details) {
-                                              if (selectedEvent != null) return;
+                                              if (selectedEvent != null) {
+                                                if (_isCreatingNew) _cancelNewEvent();
+                                                else setState(() => selectedEvent = null);
+                                              }
                                               int minTime = _snap((details.localPosition.dy / pixelsPerMinute).round());
                                               if (events.any((e) => minTime >= e.startMin && minTime < e.endMin)) return;
                                               setState(() { dragCreateStartMin = minTime; dragCreateCurrentMin = minTime; });
@@ -1269,17 +1274,11 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
   int _editStartMin = 0, _editEndMin = 0;
   String? _timeError;
 
-  final List<Color> _colorPalette = [
-    const Color(0xFF5D9CEC), const Color(0xFF4FC1E9), const Color(0xFF48CFAD), const Color(0xFF8CC152), 
-    const Color(0xFFFFCE54), const Color(0xFFF6BB42), const Color(0xFFFC6E51), const Color(0xFFED5565), 
-    const Color(0xFFDA4453), const Color(0xFFD770AD), const Color(0xFF967ADC), const Color(0xFFAAB2BD), 
-  ];
-
   final List<IconData> _iconPalette = [
-    Icons.event_note, Icons.wb_sunny_outlined, Icons.bedtime, // ← 睡眠を追加
+    Icons.event_note, Icons.wb_sunny_outlined, Icons.bedtime,
     Icons.psychology_outlined, Icons.people_outline, Icons.fitness_center,
     Icons.menu_book, Icons.computer, Icons.restaurant, 
-    Icons.shopping_cart_outlined, Icons.train, Icons.directions_car, Icons.directions_walk, // ← 車と徒歩を追加
+    Icons.shopping_cart_outlined, Icons.train, Icons.directions_car, Icons.directions_walk,
     Icons.local_cafe_outlined, Icons.phone_in_talk_outlined, Icons.music_note_outlined, 
     Icons.movie_creation_outlined, Icons.home_outlined, Icons.work_outline,
   ];
@@ -1439,7 +1438,7 @@ class _EventDetailPanelState extends State<EventDetailPanel> {
       const SizedBox(height: 24),
       const Text('カラー', style: TextStyle(color: Colors.white54, fontSize: 12)),
       const SizedBox(height: 12),
-      Wrap(spacing: 12, runSpacing: 12, children: _colorPalette.map((c) => GestureDetector(onTap: () { setState(() => _editColor = c); widget.onColorPreview(c); }, child: Container(width: 36, height: 36, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: _editColor.value == c.value ? Border.all(color: Colors.white, width: 3) : null), child: _editColor.value == c.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null))).toList()),
+      Wrap(spacing: 12, runSpacing: 12, children: ScheduleEvent.colorPalette.map((c) => GestureDetector(onTap: () { setState(() => _editColor = c); widget.onColorPreview(c); }, child: Container(width: 36, height: 36, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: _editColor.value == c.value ? Border.all(color: Colors.white, width: 3) : null), child: _editColor.value == c.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null))).toList()),
       const SizedBox(height: 24),
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('予定時間', style: TextStyle(color: Colors.white54, fontSize: 12)), Text('${_editEndMin - _editStartMin} 分')]),
       const SizedBox(height: 8),
