@@ -705,7 +705,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                                   child: GestureDetector(
                                                     behavior: HitTestBehavior.opaque,
                                                     onTapUp: (details) {
-                                                      // 【修正】詳細タブが開いている時は、閉じるだけで予定追加をしない
+                                                      
                                                       if (selectedEvent != null) {
                                                         if (_isCreatingNew) _cancelNewEvent();
                                                         else setState(() => selectedEvent = null);
@@ -716,7 +716,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                                       _showTemplateMenu(context, tappedMin);
                                                     },
                                                     onVerticalDragStart: (details) {
-                                                      // 【修正】詳細タブが開いている時は、閉じるだけでドラッグ追加をしない
+                                                    
                                                       if (selectedEvent != null) {
                                                         if (_isCreatingNew) _cancelNewEvent();
                                                         else setState(() => selectedEvent = null);
