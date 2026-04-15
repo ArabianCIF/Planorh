@@ -170,7 +170,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
   Future<void> _loadEvents() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // 初回起動判定（チュートリアル表示用）
+    // 初回起動判定
     final bool hasSeenTutorial = prefs.getBool('has_seen_tutorial') ?? false;
     if (!hasSeenTutorial) {
       setState(() => _showTutorial = true);
@@ -178,7 +178,6 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
 
     final String? eventsJson = prefs.getString('schedule_events');
     if (eventsJson != null) {
-      // 2回目以降：保存されている予定を読み込む
       final List<dynamic> decoded = jsonDecode(eventsJson);
       setState(() => events = decoded.map((e) => ScheduleEvent.fromJson(e)).toList()..sort((a, b) => a.startMin.compareTo(b.startMin)));
     } else {
@@ -189,30 +188,29 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
             id: 'init_sleep_1',
             title: '睡眠',
             icon: Icons.bedtime,
-            color: const Color(0xFF967ADC), // テンプレートの睡眠カラー
-            startMin: 0,       // 0:00
-            endMin: 360,       // 6:00 (6時間)
+            color: const Color(0xFF967ADC), 
+            startMin: 0,       
+            endMin: 360,       
           ),
           ScheduleEvent(
             id: 'init_meal',
             title: '食事',
             icon: Icons.restaurant,
-            color: const Color(0xFFF6BB42), // テンプレートの食事カラー
-            startMin: 720,     // 12:00
-            endMin: 780,       // 13:00 (1時間)
+            color: const Color(0xFFF6BB42), 
+            startMin: 720,     
+            endMin: 780,       
           ),
           ScheduleEvent(
             id: 'init_sleep_2',
             title: '睡眠',
             icon: Icons.bedtime,
-            color: const Color(0xFF967ADC), // テンプレートの睡眠カラー
-            startMin: 1320,    // 22:00
-            endMin: 1440,      // 24:00 (2時間)
+            color: const Color(0xFF967ADC), 
+            startMin: 1320,    
+            endMin: 1440,      
           ),
         ];
         events.sort((a, b) => a.startMin.compareTo(b.startMin));
       });
-      // 作成した初期データを保存しておく
       _saveEvents();
     }
 
@@ -622,7 +620,7 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.add, color: Colors.white),
-                        title: const Text('新規作成', style: TextStyle(color: Colors.white)),
+                        title: const Text('＋ 新規作成（白紙から）', style: TextStyle(color: Colors.white)),
                         onTap: () { Navigator.pop(context); _addEventAt(tappedMin); },
                       ),
                       const Divider(color: Colors.white10, height: 32),
@@ -707,18 +705,22 @@ class _InteractiveScheduleState extends State<InteractiveSchedule> {
                                                   child: GestureDetector(
                                                     behavior: HitTestBehavior.opaque,
                                                     onTapUp: (details) {
+                                                      // 【修正】詳細タブが開いている時は、閉じるだけで予定追加をしない
                                                       if (selectedEvent != null) {
                                                         if (_isCreatingNew) _cancelNewEvent();
                                                         else setState(() => selectedEvent = null);
+                                                        return; // ← ここで処理を終了させる
                                                       }
                                                       int tappedMin = _snap((details.localPosition.dy / pixelsPerMinute).round());
                                                       if (events.any((e) => tappedMin >= e.startMin && tappedMin < e.endMin)) return;
                                                       _showTemplateMenu(context, tappedMin);
                                                     },
                                                     onVerticalDragStart: (details) {
+                                                      // 【修正】詳細タブが開いている時は、閉じるだけでドラッグ追加をしない
                                                       if (selectedEvent != null) {
                                                         if (_isCreatingNew) _cancelNewEvent();
                                                         else setState(() => selectedEvent = null);
+                                                        return; // ← ここで処理を終了させる
                                                       }
                                                       int minTime = _snap((details.localPosition.dy / pixelsPerMinute).round());
                                                       if (events.any((e) => minTime >= e.startMin && minTime < e.endMin)) return;
@@ -1589,8 +1591,8 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
       color: Colors.black.withOpacity(0.7),
       child: Center(
         child: Container(
-          width: 400,
-          height: 460, // ★修正: 420から460に広げて余裕を持たせました
+          width: 340,
+          height: 460, 
           decoration: BoxDecoration(
             color: const Color(0xFF1E2024), 
             borderRadius: BorderRadius.circular(24),
@@ -1612,8 +1614,8 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
                   itemCount: _pages.length,
                   itemBuilder: (context, index) {
                     final page = _pages[index];
-                    return Center( // ★修正: 縦中央に寄せる
-                      child: SingleChildScrollView( // ★追加: 万が一文字が大きくてもエラーにならずスクロール可能に
+                    return Center( 
+                      child: SingleChildScrollView( 
                         padding: const EdgeInsets.all(32.0),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
